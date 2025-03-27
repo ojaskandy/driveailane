@@ -61,30 +61,31 @@ def index():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    cap = cv2.VideoCapture(0)
-    
-    while True:
-        ret, frame = cap.read()
-        if ret:
-            # Process frame
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            processed_frame = process(frame_rgb)
-            
-            # Encode both frames
-            raw_frame = encode_frame(frame)
-            processed_frame_encoded = encode_frame(processed_frame)
-            
-            # Send frames to client
-            socketio.emit('frame', {
-                'raw': raw_frame,
-                'processed': processed_frame_encoded
-            })
-    
-    cap.release()
 
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
+
+@socketio.on('frame')
+def handle_frame(data):
+    try:
+        # Remove the data URL prefix
+        encoded_data = data.split(',')[1]
+        # Decode base64 image
+        nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        # Process frame
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        processed_frame = process(frame_rgb)
+        
+        # Encode processed frame
+        processed_frame_encoded = encode_frame(processed_frame)
+        
+        # Send processed frame back to client
+        socketio.emit('processed_frame', processed_frame_encoded)
+    except Exception as e:
+        print(f"Error processing frame: {str(e)}")
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000))) 

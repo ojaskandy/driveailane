@@ -34,7 +34,7 @@
             margin-top: 0;
             color: #444;
         }
-        img {
+        video, img {
             max-width: 500px;
             height: auto;
             border-radius: 4px;
@@ -52,15 +52,26 @@
             background-color: #f8d7da;
             color: #721c24;
         }
+        #camera-permission {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #fff3cd;
+            color: #856404;
+            border-radius: 4px;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Real-time Lane Detection</h1>
+        <div id="camera-permission">
+            Please allow camera access to use the lane detection system.
+        </div>
         <div class="video-container">
             <div class="video-box">
                 <h3>Raw Feed</h3>
-                <img id="rawFeed" src="" alt="Raw Camera Feed">
+                <video id="rawFeed" autoplay playsinline></video>
             </div>
             <div class="video-box">
                 <h3>Processed Feed</h3>
@@ -76,20 +87,62 @@
         const rawFeed = document.getElementById('rawFeed');
         const processedFeed = document.getElementById('processedFeed');
         const status = document.getElementById('status');
+        const cameraPermission = document.getElementById('camera-permission');
+        let stream = null;
+        let canvas = document.createElement('canvas');
+        let context = canvas.getContext('2d');
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: 640,
+                        height: 480,
+                        facingMode: 'environment'
+                    } 
+                });
+                rawFeed.srcObject = stream;
+                cameraPermission.style.display = 'none';
+                status.textContent = 'Connected';
+                status.className = 'connected';
+                startFrameCapture();
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                cameraPermission.style.display = 'block';
+                status.textContent = 'Camera access denied';
+                status.className = 'disconnected';
+            }
+        }
+
+        function startFrameCapture() {
+            canvas.width = rawFeed.videoWidth;
+            canvas.height = rawFeed.videoHeight;
+            
+            setInterval(() => {
+                if (rawFeed.readyState === rawFeed.HAVE_ENOUGH_DATA) {
+                    context.drawImage(rawFeed, 0, 0, canvas.width, canvas.height);
+                    const frame = canvas.toDataURL('image/jpeg', 0.8);
+                    socket.emit('frame', frame);
+                }
+            }, 100); // Send frame every 100ms
+        }
 
         socket.on('connect', () => {
             status.textContent = 'Connected';
             status.className = 'connected';
+            startCamera();
         });
 
         socket.on('disconnect', () => {
             status.textContent = 'Disconnected';
             status.className = 'disconnected';
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
         });
 
-        socket.on('frame', (data) => {
-            rawFeed.src = 'data:image/jpeg;base64,' + data.raw;
-            processedFeed.src = 'data:image/jpeg;base64,' + data.processed;
+        socket.on('processed_frame', (data) => {
+            processedFeed.src = 'data:image/jpeg;base64,' + data;
         });
     </script>
 </body>
