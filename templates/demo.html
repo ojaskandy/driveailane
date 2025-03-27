@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DriveAI - Lane Detection Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #00ff88;
+            --success-color: #2ecc71;
+            --error-color: #e74c3c;
+            --background-color: #0a0a0a;
+            --text-color: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: rgba(44, 62, 80, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 300;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .video-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+            padding: 1rem;
+        }
+
+        .video-box {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .video-box:hover {
+            transform: translateY(-5px);
+        }
+
+        .video-box h3 {
+            margin: 0;
+            padding: 1rem;
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            font-weight: 500;
+        }
+
+        .video-content {
+            padding: 1rem;
+        }
+
+        video, img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            display: block;
+        }
+
+        #status {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 0.8rem 2rem;
+            border-radius: 50px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .connected {
+            background-color: rgba(46, 204, 113, 0.8);
+            color: white;
+        }
+
+        .disconnected {
+            background-color: rgba(231, 76, 60, 0.8);
+            color: white;
+        }
+
+        #camera-permission {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2rem;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            text-align: center;
+            display: none;
+            z-index: 1000;
+            color: white;
+        }
+
+        #camera-permission button {
+            margin-top: 1rem;
+            padding: 0.8rem 1.5rem;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            color: var(--primary-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        #camera-permission button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 0.8rem 1.5rem;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            color: var(--primary-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            z-index: 1001;
+        }
+
+        .back-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 136, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-button">← Back to Home</a>
+    
+    <header>
+        <h1>Real-time Lane Detection Demo</h1>
+    </header>
+
+    <div class="container">
+        <div id="camera-permission">
+            <h3>Camera Access Required</h3>
+            <p>Please allow camera access to use the lane detection system.</p>
+            <button onclick="requestCamera()">Enable Camera</button>
+        </div>
+
+        <div class="video-container">
+            <div class="video-box">
+                <h3>Raw Feed</h3>
+                <div class="video-content">
+                    <video id="rawFeed" autoplay playsinline></video>
+                </div>
+            </div>
+            <div class="video-box">
+                <h3>Processed Feed</h3>
+                <div class="video-content">
+                    <img id="processedFeed" src="" alt="Processed Feed">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="status" class="disconnected">Disconnected</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const rawFeed = document.getElementById('rawFeed');
+        const processedFeed = document.getElementById('processedFeed');
+        const status = document.getElementById('status');
+        const cameraPermission = document.getElementById('camera-permission');
+        let stream = null;
+        let isProcessing = false;
+        let frameCount = 0;
+        
+        // Create canvas once and set to offscreen
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d', { alpha: false });
+        canvas.width = 640;
+        canvas.height = 480;
+
+        async function requestCamera() {
+            await startCamera();
+        }
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'environment',
+                        frameRate: { ideal: 30 }
+                    } 
+                });
+                rawFeed.srcObject = stream;
+                cameraPermission.style.display = 'none';
+                status.textContent = 'Connected';
+                status.className = 'connected';
+                
+                rawFeed.addEventListener('loadedmetadata', () => {
+                    startFrameCapture();
+                });
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                cameraPermission.style.display = 'block';
+                status.textContent = 'Camera access denied';
+                status.className = 'disconnected';
+            }
+        }
+
+        function startFrameCapture() {
+            // Use requestAnimationFrame for better performance
+            function captureFrame() {
+                if (rawFeed.readyState === rawFeed.HAVE_ENOUGH_DATA && !isProcessing) {
+                    isProcessing = true;
+                    frameCount++;
+                    
+                    // Only process every other frame for better performance
+                    if (frameCount % 2 === 0) {
+                        context.drawImage(rawFeed, 0, 0, canvas.width, canvas.height);
+                        const frame = canvas.toDataURL('image/jpeg', 0.7);
+                        socket.emit('frame', frame);
+                    } else {
+                        isProcessing = false;
+                    }
+                }
+                requestAnimationFrame(captureFrame);
+            }
+            
+            requestAnimationFrame(captureFrame);
+        }
+
+        socket.on('connect', () => {
+            status.textContent = 'Connected';
+            status.className = 'connected';
+            startCamera();
+        });
+
+        socket.on('disconnect', () => {
+            status.textContent = 'Disconnected';
+            status.className = 'disconnected';
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+
+        socket.on('processed_frame', (data) => {
+            processedFeed.src = 'data:image/jpeg;base64,' + data;
+            isProcessing = false;
+        });
+    </script>
+</body>
+</html> 

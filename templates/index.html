@@ -1,16 +1,18 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Lane Detection</title>
+    <title>DriveAI - Intelligent Lane Detection</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
             --primary-color: #2c3e50;
             --secondary-color: #3498db;
+            --accent-color: #00ff88;
             --success-color: #2ecc71;
             --error-color: #e74c3c;
-            --warning-color: #f1c40f;
-            --background-color: #ecf0f1;
+            --background-color: #0a0a0a;
+            --text-color: #ffffff;
         }
 
         body {
@@ -18,238 +20,261 @@
             margin: 0;
             padding: 0;
             background-color: var(--background-color);
+            color: var(--text-color);
             min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .background-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            opacity: 0.1;
+            pointer-events: none;
+        }
+
+        .floating-shape {
+            position: absolute;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            border-radius: 50%;
+            filter: blur(50px);
+            animation: float 20s infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(100px, 100px) scale(1.1); }
+            50% { transform: translate(200px, -100px) scale(0.9); }
+            75% { transform: translate(-100px, 200px) scale(1.2); }
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
+            position: relative;
+            z-index: 2;
         }
 
         header {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem;
             text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 4rem 0;
         }
 
-        h1 {
-            margin: 0;
-            font-size: 2rem;
-            font-weight: 300;
+        .logo {
+            font-size: 4rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: glow 3s infinite;
         }
 
-        .video-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
+        @keyframes glow {
+            0%, 100% { filter: drop-shadow(0 0 20px var(--accent-color)); }
+            50% { filter: drop-shadow(0 0 40px var(--secondary-color)); }
+        }
+
+        .tagline {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        .waitlist-form {
+            max-width: 500px;
+            margin: 0 auto;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2rem;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+
+        input[type="email"] {
+            flex: 1;
             padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-color);
+            font-size: 1rem;
         }
 
-        .video-box {
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        button {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            color: var(--primary-color);
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 4rem 0;
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2rem;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            text-align: center;
             transition: transform 0.3s ease;
         }
 
-        .video-box:hover {
-            transform: translateY(-5px);
+        .feature-card:hover {
+            transform: translateY(-10px);
         }
 
-        .video-box h3 {
-            margin: 0;
-            padding: 1rem;
-            background-color: var(--primary-color);
-            color: white;
-            font-weight: 500;
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: var(--accent-color);
         }
 
-        .video-content {
-            padding: 1rem;
-        }
-
-        video, img {
-            width: 100%;
-            height: auto;
-            border-radius: 4px;
-            display: block;
-        }
-
-        #status {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 0.8rem 2rem;
-            border-radius: 50px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-            z-index: 1000;
-        }
-
-        .connected {
-            background-color: var(--success-color);
-            color: white;
-        }
-
-        .disconnected {
-            background-color: var(--error-color);
-            color: white;
-        }
-
-        #camera-permission {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background-color: white;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        .developer-section {
             text-align: center;
+            margin-top: 4rem;
+            padding: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .success-message {
             display: none;
-            z-index: 1000;
-        }
-
-        #camera-permission button {
-            margin-top: 1rem;
-            padding: 0.5rem 1rem;
-            background-color: var(--secondary-color);
+            background: var(--success-color);
             color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.3s ease;
-        }
-
-        #camera-permission button:hover {
-            background-color: var(--primary-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
         }
 
         @media (max-width: 768px) {
-            .video-container {
-                grid-template-columns: 1fr;
-            }
-            
-            .container {
-                padding: 10px;
-            }
-            
-            h1 {
-                font-size: 1.5rem;
-            }
+            .logo { font-size: 3rem; }
+            .tagline { font-size: 1.2rem; }
+            .input-group { flex-direction: column; }
+            button { width: 100%; }
         }
     </style>
 </head>
 <body>
-    <header>
-        <h1>Real-time Lane Detection</h1>
-    </header>
+    <div class="background-animation">
+        <div class="floating-shape" style="width: 300px; height: 300px; top: 20%; left: 10%;"></div>
+        <div class="floating-shape" style="width: 200px; height: 200px; top: 60%; left: 70%;"></div>
+        <div class="floating-shape" style="width: 150px; height: 150px; top: 30%; left: 80%;"></div>
+    </div>
 
     <div class="container">
-        <div id="camera-permission">
-            <h3>Camera Access Required</h3>
-            <p>Please allow camera access to use the lane detection system.</p>
-            <button onclick="requestCamera()">Enable Camera</button>
+        <header>
+            <div class="logo">DriveAI</div>
+            <div class="tagline">Revolutionizing road safety with intelligent lane detection</div>
+        </header>
+
+        <div class="waitlist-form">
+            <h2>Join the Waitlist</h2>
+            <p>Be the first to experience the future of driving assistance</p>
+            <form id="waitlistForm" onsubmit="return submitWaitlist(event)">
+                <div class="input-group">
+                    <input type="email" id="email" placeholder="Enter your email" required>
+                    <button type="submit">Join Waitlist</button>
+                </div>
+            </form>
+            <div id="successMessage" class="success-message">
+                Thank you for joining our waitlist!
+            </div>
         </div>
 
-        <div class="video-container">
-            <div class="video-box">
-                <h3>Raw Feed</h3>
-                <div class="video-content">
-                    <video id="rawFeed" autoplay playsinline></video>
+        <div class="features">
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-road"></i>
                 </div>
+                <h3>Real-time Detection</h3>
+                <p>Advanced lane detection with instant feedback</p>
             </div>
-            <div class="video-box">
-                <h3>Processed Feed</h3>
-                <div class="video-content">
-                    <img id="processedFeed" src="" alt="Processed Feed">
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-shield-alt"></i>
                 </div>
+                <h3>Enhanced Safety</h3>
+                <p>Proactive alerts for safer driving</p>
             </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <i class="fas fa-microchip"></i>
+                </div>
+                <h3>AI Powered</h3>
+                <p>State-of-the-art machine learning algorithms</p>
+            </div>
+        </div>
+
+        <div class="developer-section">
+            <a href="/demo" style="text-decoration: none;">
+                <button>I'm a Developer</button>
+            </a>
         </div>
     </div>
 
-    <div id="status" class="disconnected">Disconnected</div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-        const socket = io();
-        const rawFeed = document.getElementById('rawFeed');
-        const processedFeed = document.getElementById('processedFeed');
-        const status = document.getElementById('status');
-        const cameraPermission = document.getElementById('camera-permission');
-        let stream = null;
-        let isProcessing = false;
-        
-        // Create canvas once
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.width = 640;
-        canvas.height = 480;
-
-        async function requestCamera() {
-            await startCamera();
+        // Add dynamic floating shapes
+        function createFloatingShapes() {
+            const animation = document.querySelector('.background-animation');
+            for (let i = 0; i < 3; i++) {
+                const shape = document.createElement('div');
+                shape.className = 'floating-shape';
+                shape.style.width = Math.random() * 200 + 100 + 'px';
+                shape.style.height = shape.style.width;
+                shape.style.top = Math.random() * 100 + '%';
+                shape.style.left = Math.random() * 100 + '%';
+                shape.style.animationDelay = Math.random() * 10 + 's';
+                animation.appendChild(shape);
+            }
         }
 
-        async function startCamera() {
+        async function submitWaitlist(event) {
+            event.preventDefault();
+            const email = document.getElementById('email').value;
+            
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: 'environment'
-                    } 
+                const response = await fetch('/join-waitlist', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email }),
                 });
-                rawFeed.srcObject = stream;
-                cameraPermission.style.display = 'none';
-                status.textContent = 'Connected';
-                status.className = 'connected';
-                
-                rawFeed.addEventListener('loadedmetadata', () => {
-                    startFrameCapture();
-                });
-            } catch (err) {
-                console.error('Error accessing camera:', err);
-                cameraPermission.style.display = 'block';
-                status.textContent = 'Camera access denied';
-                status.className = 'disconnected';
-            }
-        }
 
-        function startFrameCapture() {
-            setInterval(() => {
-                if (rawFeed.readyState === rawFeed.HAVE_ENOUGH_DATA && !isProcessing) {
-                    isProcessing = true;
-                    context.drawImage(rawFeed, 0, 0, canvas.width, canvas.height);
-                    const frame = canvas.toDataURL('image/jpeg', 0.7);
-                    socket.emit('frame', frame);
+                if (response.ok) {
+                    document.getElementById('successMessage').style.display = 'block';
+                    document.getElementById('email').value = '';
                 }
-            }, 50); // 20 FPS
+            } catch (error) {
+                console.error('Error:', error);
+            }
         }
 
-        socket.on('connect', () => {
-            status.textContent = 'Connected';
-            status.className = 'connected';
-            startCamera();
-        });
-
-        socket.on('disconnect', () => {
-            status.textContent = 'Disconnected';
-            status.className = 'disconnected';
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-        });
-
-        socket.on('processed_frame', (data) => {
-            processedFeed.src = 'data:image/jpeg;base64,' + data;
-            isProcessing = false;
-        });
+        createFloatingShapes();
     </script>
 </body>
 </html> 

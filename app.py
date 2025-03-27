@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response
+from flask import Flask, render_template, Response, jsonify, request
 from flask_socketio import SocketIO
 import cv2
 import numpy as np
@@ -6,11 +6,17 @@ import base64
 import io
 from PIL import Image
 import os
+import smtplib
+from email.mime.text import MIMEText
 from threading import Lock
+import queue
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 thread_lock = Lock()
+
+# Queue for storing email addresses
+email_queue = queue.Queue()
 
 def region_of_interest(img, vertices):
     mask = np.zeros_like(img)
@@ -54,7 +60,7 @@ def process(image):
         # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
         
-        # Edge detection
+        # Edge detection with optimized parameters
         canny_image = cv2.Canny(blurred, 50, 150)
         
         # Get cached ROI vertices
@@ -63,7 +69,7 @@ def process(image):
         # Apply region of interest mask
         cropped_image = region_of_interest(canny_image, vertices)
         
-        # Detect lines
+        # Detect lines with optimized parameters
         lines = cv2.HoughLinesP(
             cropped_image,
             rho=1,
@@ -83,16 +89,41 @@ def process(image):
 def encode_frame(frame):
     try:
         # Compress image with lower quality for faster transmission
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]
         _, buffer = cv2.imencode('.jpg', frame, encode_param)
         return base64.b64encode(buffer).decode('utf-8')
     except Exception as e:
         print(f"Error encoding frame: {str(e)}")
         return None
 
+def send_email(email):
+    try:
+        # Add email to queue for batch processing
+        email_queue.put(email)
+        return True
+    except Exception as e:
+        print(f"Error queueing email: {str(e)}")
+        return False
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/demo')
+def demo():
+    return render_template('demo.html')
+
+@app.route('/join-waitlist', methods=['POST'])
+def join_waitlist():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        if email:
+            if send_email(email):
+                return jsonify({'status': 'success'})
+        return jsonify({'status': 'error', 'message': 'Invalid email'}), 400
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @socketio.on('connect')
 def handle_connect():
@@ -137,5 +168,38 @@ def handle_frame(data):
     except Exception as e:
         print(f"Error processing frame: {str(e)}")
 
+def process_email_queue():
+    """Process emails in batches and send to your email"""
+    while True:
+        try:
+            emails = []
+            # Collect all available emails from the queue
+            while not email_queue.empty() and len(emails) < 100:  # Process up to 100 emails at a time
+                emails.append(email_queue.get_nowait())
+            
+            if emails:
+                # Create email content
+                email_content = "\n".join(emails)
+                msg = MIMEText(f"New waitlist signups:\n\n{email_content}")
+                msg['Subject'] = 'DriveAI Waitlist Signups'
+                msg['From'] = 'noreply@driveai.com'
+                msg['To'] = 'ojaskandy@gmail.com'
+                
+                # Send email (commented out for now)
+                # with smtplib.SMTP('smtp.gmail.com', 587) as server:
+                #     server.starttls()
+                #     server.login('your-email@gmail.com', 'your-password')
+                #     server.send_message(msg)
+                
+                # For now, just print the emails
+                print(f"Would send emails: {email_content}")
+            
+            socketio.sleep(300)  # Process every 5 minutes
+            
+        except Exception as e:
+            print(f"Error processing email queue: {str(e)}")
+            socketio.sleep(60)  # Wait a minute before retrying on error
+
 if __name__ == '__main__':
+    socketio.start_background_task(process_email_queue)
     socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000))) 
