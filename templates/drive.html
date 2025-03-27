@@ -1,69 +1,122 @@
-    <div class="container">
-        <div id="camera-permission">
-            <h3>Camera Access Required</h3>
-            <p>Please allow camera access to use the lane detection system.</p>
-            <button onclick="requestCamera()">Enable Camera</button>
-        </div>
-
-        <div class="video-container">
-            <div class="video-box">
-                <h3>Raw Feed</h3>
-                <div class="video-content">
-                    <video id="rawFeed" autoplay playsinline></video>
-                </div>
-            </div>
-            <div class="video-box">
-                <h3>Processed Feed</h3>
-                <div class="video-content">
-                    <img id="processedFeed" src="" alt="Processed Feed">
-                </div>
-            </div>
-        </div>
-
-        <div class="controls">
-            <button id="startDrive" class="action-button" onclick="startDrive()">Start Drive</button>
-            <button id="stopDrive" class="action-button" onclick="stopDrive()" style="display: none;">Stop Drive</button>
-        </div>
-
-        <div id="tripSummary" class="trip-summary" style="display: none;">
-            <h3>Trip Summary</h3>
-            <div class="summary-content">
-                <div class="summary-item">
-                    <span class="label">Duration:</span>
-                    <span id="tripDuration" class="value"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="label">Start Time:</span>
-                    <span id="tripStartTime" class="value"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="label">End Time:</span>
-                    <span id="tripEndTime" class="value"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="label">Start Location:</span>
-                    <span id="tripStartLocation" class="value"></span>
-                </div>
-                <div class="summary-item">
-                    <span class="label">End Location:</span>
-                    <span id="tripEndLocation" class="value"></span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="status" class="disconnected">Disconnected</div>
-
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DriveAI - Drive Session</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        .controls {
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #00ff88;
+            --success-color: #2ecc71;
+            --error-color: #e74c3c;
+            --background-color: #0a0a0a;
+            --text-color: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        #camera-permission {
+            text-align: center;
+            padding: 3rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            margin-bottom: 2rem;
+        }
+
+        #camera-permission h3 {
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .video-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 2rem;
             margin: 2rem 0;
+        }
+
+        .video-box {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .video-box h3 {
+            text-align: center;
+            margin-bottom: 1rem;
+            font-size: 1.4rem;
+            color: var(--accent-color);
+        }
+
+        .video-content {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            overflow: hidden;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
             display: flex;
-            gap: 1rem;
+            align-items: center;
             justify-content: center;
         }
 
+        video, img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.5);
+            color: var(--accent-color);
+            font-size: 1.2rem;
+            text-align: center;
+            padding: 1rem;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .video-content:not(.active) .video-overlay {
+            opacity: 1;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
         .action-button {
-            padding: 1rem 2rem;
+            padding: 1rem 2.5rem;
             font-size: 1.2rem;
             background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
             color: var(--primary-color);
@@ -71,12 +124,18 @@
             border-radius: 8px;
             cursor: pointer;
             font-weight: bold;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: all 0.3s ease;
         }
 
         .action-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .action-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .trip-summary {
@@ -89,141 +148,268 @@
 
         .summary-content {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
         }
 
         .summary-item {
-            padding: 1rem;
+            padding: 1.5rem;
             background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
+            border-radius: 12px;
+            transition: transform 0.3s ease;
+        }
+
+        .summary-item:hover {
+            transform: translateY(-5px);
         }
 
         .summary-item .label {
             display: block;
-            font-size: 0.9rem;
+            font-size: 1rem;
             opacity: 0.8;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.8rem;
         }
 
         .summary-item .value {
             display: block;
-            font-size: 1.1rem;
+            font-size: 1.3rem;
             color: var(--accent-color);
+            font-weight: 500;
+        }
+
+        #status {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 0.8rem 1.5rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+
+        #status.connected {
+            background: rgba(46, 204, 113, 0.2);
+            color: var(--success-color);
+        }
+
+        #status.disconnected {
+            background: rgba(231, 76, 60, 0.2);
+            color: var(--error-color);
+        }
+
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 0.8rem 1.5rem;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            color: var(--primary-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            text-decoration: none;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .back-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .video-container {
+                grid-template-columns: 1fr;
+            }
+            .container {
+                padding: 1rem;
+            }
+            .video-box {
+                padding: 1rem;
+            }
         }
     </style>
+</head>
+<body>
+    <a href="/dashboard" class="back-button">← Back to Dashboard</a>
+
+    <div class="container">
+        <div id="camera-permission">
+            <h3>Camera Access Required</h3>
+            <p>Please allow camera access to use the lane detection system.</p>
+            <button class="action-button" onclick="requestCamera()">Enable Camera</button>
+        </div>
+
+        <div class="video-container" style="display: none;">
+            <div class="video-box">
+                <h3>Raw Feed</h3>
+                <div class="video-content">
+                    <video id="rawFeed" autoplay playsinline muted></video>
+                    <div class="video-overlay">Camera feed not active</div>
+                </div>
+            </div>
+            <div class="video-box">
+                <h3>Processed Feed</h3>
+                <div class="video-content">
+                    <img id="processedFeed" alt="Processed Feed">
+                    <div class="video-overlay">Processing not active</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="startDrive" class="action-button" onclick="startDrive()" disabled>Start Drive</button>
+            <button id="stopDrive" class="action-button" onclick="stopDrive()" style="display: none;">Stop Drive</button>
+        </div>
+
+        <div id="tripSummary" class="trip-summary" style="display: none;">
+            <h3>Trip Summary</h3>
+            <div class="summary-content">
+                <div class="summary-item">
+                    <span class="label">Duration</span>
+                    <span id="tripDuration" class="value">--:--</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Start Time</span>
+                    <span id="tripStartTime" class="value">--:--</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">End Time</span>
+                    <span id="tripEndTime" class="value">--:--</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Start Location</span>
+                    <span id="tripStartLocation" class="value">--</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">End Location</span>
+                    <span id="tripEndLocation" class="value">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="status" class="disconnected">Disconnected</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
+        let socket = io();
+        let stream = null;
+        let isProcessing = false;
         let currentTripId = null;
-        let watchId = null;
-        let currentPosition = null;
+        let frameCapture = null;
 
-        // Initialize geolocation
-        function initGeolocation() {
-            if ("geolocation" in navigator) {
-                watchId = navigator.geolocation.watchPosition(
-                    position => {
-                        currentPosition = {
-                            lat: position.coords.latitude,
-                            lng: position.coords.longitude,
-                            accuracy: position.coords.accuracy,
-                            timestamp: position.timestamp
-                        };
-                        
-                        if (currentTripId) {
-                            socket.emit('update_location', {
-                                trip_id: currentTripId,
-                                location: currentPosition
-                            });
-                        }
-                    },
-                    error => {
-                        console.error('Error getting location:', error);
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        maximumAge: 1000,
-                        timeout: 5000
-                    }
-                );
+        // Socket.IO event handlers
+        socket.on('connect', () => {
+            document.getElementById('status').className = 'connected';
+            document.getElementById('status').textContent = 'Connected';
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('status').className = 'disconnected';
+            document.getElementById('status').textContent = 'Disconnected';
+            stopProcessing();
+        });
+
+        socket.on('processed_frame', (frameData) => {
+            const img = document.getElementById('processedFeed');
+            img.src = 'data:image/jpeg;base64,' + frameData;
+            img.parentElement.classList.add('active');
+        });
+
+        // Camera handling
+        async function requestCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: 'environment'
+                    } 
+                });
+                
+                const video = document.getElementById('rawFeed');
+                video.srcObject = stream;
+                video.parentElement.classList.add('active');
+                
+                // Show video container and enable Start Drive button
+                document.querySelector('.video-container').style.display = 'grid';
+                document.getElementById('camera-permission').style.display = 'none';
+                document.getElementById('startDrive').disabled = false;
+                
+                return true;
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                alert('Failed to access camera. Please ensure camera permissions are granted.');
+                return false;
             }
+        }
+
+        function stopProcessing() {
+            isProcessing = false;
+            if (frameCapture) {
+                clearInterval(frameCapture);
+                frameCapture = null;
+            }
+            document.querySelectorAll('.video-content').forEach(el => el.classList.remove('active'));
+        }
+
+        // Frame capture and processing
+        function startFrameCapture() {
+            if (!stream || isProcessing) return;
+            
+            isProcessing = true;
+            const video = document.getElementById('rawFeed');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            frameCapture = setInterval(() => {
+                if (!isProcessing) {
+                    clearInterval(frameCapture);
+                    return;
+                }
+                
+                ctx.drawImage(video, 0, 0);
+                const frame = canvas.toDataURL('image/jpeg', 0.7);
+                socket.emit('frame', frame);
+            }, 100); // Capture every 100ms
         }
 
         async function startDrive() {
             try {
-                // Request camera access if not already granted
-                if (!stream) {
-                    await startCamera();
-                }
+                document.getElementById('startDrive').style.display = 'none';
+                document.getElementById('stopDrive').style.display = 'inline-block';
+                document.getElementById('tripSummary').style.display = 'none';
                 
-                // Start GPS tracking
-                initGeolocation();
-                
-                // Start the trip
-                const response = await socket.emitWithAck('start_trip', {
-                    location: currentPosition || 'Location unavailable'
-                });
-                
-                if (response && response.trip_id) {
-                    currentTripId = response.trip_id;
-                    document.getElementById('startDrive').style.display = 'none';
-                    document.getElementById('stopDrive').style.display = 'inline-block';
-                    document.getElementById('tripSummary').style.display = 'none';
-                    
-                    // Start frame capture if not already started
-                    if (!isProcessing) {
-                        startFrameCapture();
-                    }
-                }
+                // Start frame capture
+                startFrameCapture();
             } catch (error) {
                 console.error('Error starting drive:', error);
+                alert('Failed to start drive. Please try again.');
             }
         }
 
         async function stopDrive() {
-            if (currentTripId) {
-                // Stop GPS tracking
-                if (watchId) {
-                    navigator.geolocation.clearWatch(watchId);
-                    watchId = null;
-                }
+            try {
+                document.getElementById('startDrive').style.display = 'inline-block';
+                document.getElementById('stopDrive').style.display = 'none';
                 
-                // End the trip
-                const summary = await socket.emitWithAck('end_trip', {
-                    trip_id: currentTripId,
-                    location: currentPosition || 'Location unavailable'
-                });
-                
-                if (summary && !summary.error) {
-                    document.getElementById('tripDuration').textContent = summary.duration;
-                    document.getElementById('tripStartTime').textContent = summary.start_time;
-                    document.getElementById('tripEndTime').textContent = summary.end_time;
-                    document.getElementById('tripStartLocation').textContent = summary.start_location;
-                    document.getElementById('tripEndLocation').textContent = summary.end_location;
-                    
-                    document.getElementById('tripSummary').style.display = 'block';
-                    document.getElementById('startDrive').style.display = 'inline-block';
-                    document.getElementById('stopDrive').style.display = 'none';
-                }
-                
-                currentTripId = null;
-                
-                // Stop the video feed
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                    stream = null;
-                }
-                isProcessing = false;
+                stopProcessing();
+            } catch (error) {
+                console.error('Error stopping drive:', error);
+                alert('Failed to stop drive. Please try again.');
             }
         }
 
         // Clean up when leaving the page
         window.addEventListener('beforeunload', () => {
-            if (watchId) {
-                navigator.geolocation.clearWatch(watchId);
-            }
+            stopProcessing();
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
             }

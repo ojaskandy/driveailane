@@ -1,5 +1,5 @@
 from flask import Flask, render_template, Response, jsonify, request
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit
 import cv2
 import numpy as np
 import base64
@@ -13,9 +13,13 @@ import queue
 from twilio.rest import Client
 from datetime import datetime
 import json
+import threading
+from queue import Queue
+import time
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+app.config['SECRET_KEY'] = os.urandom(24)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 thread_lock = Lock()
 
 # Twilio credentials
@@ -27,6 +31,10 @@ TARGET_EMAIL = 'ojaskandy@gmail.com'
 
 # Queue for storing email addresses
 email_queue = queue.Queue()
+
+# Store active trips
+active_trips = {}
+frame_queues = {}
 
 # Trip tracking
 class TripStats:
@@ -184,7 +192,7 @@ def join_waitlist():
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    print(f"Client connected: {request.sid}")
     emit('stats_update', {
         'total_drives': trip_stats.total_drives,
         'total_time': format_duration(trip_stats.total_time),
@@ -193,102 +201,78 @@ def handle_connect():
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('Client disconnected')
+    print(f"Client disconnected: {request.sid}")
+    # Clean up any active trips for this client
+    if request.sid in active_trips:
+        del active_trips[request.sid]
+    if request.sid in frame_queues:
+        del frame_queues[request.sid]
 
 @socketio.on('frame')
-def handle_frame(data):
+def handle_frame(frame_data):
     try:
-        with thread_lock:
-            # Remove the data URL prefix
-            if ',' not in data:
-                return
-            encoded_data = data.split(',')[1]
-            
-            # Decode base64 image
-            nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
-            if nparr.size == 0:
-                return
-                
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if frame is None:
-                return
-                
-            # Resize frame for faster processing
-            frame = cv2.resize(frame, (640, 480))
-            
-            # Process frame
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            processed_frame = process(frame_rgb)
-            
-            if processed_frame is not None:
-                # Encode processed frame
-                processed_frame_encoded = encode_frame(processed_frame)
-                if processed_frame_encoded:
-                    # Send processed frame back to client
-                    socketio.emit('processed_frame', processed_frame_encoded)
-                    
+        processed_frame = process_frame(frame_data)
+        if processed_frame:
+            emit('processed_frame', processed_frame)
     except Exception as e:
-        print(f"Error processing frame: {str(e)}")
+        print(f"Error handling frame: {str(e)}")
 
 @socketio.on('start_trip')
 def handle_start_trip(data):
-    trip_id = str(datetime.now().timestamp())
-    location = data.get('location', 'Location unavailable')
+    trip_id = request.sid
+    start_location = data.get('location', 'Location unavailable')
+    start_time = datetime.now()
     
-    trip_stats.current_trips[trip_id] = {
-        'start_time': datetime.now(),
-        'start_location': location,
-        'current_location': location,
-        'path': [location] if isinstance(location, dict) else [],
-        'end_location': None
+    active_trips[trip_id] = {
+        'start_time': start_time,
+        'start_location': start_location,
+        'frames_processed': 0
     }
-    return {'trip_id': trip_id}
-
-@socketio.on('update_location')
-def handle_location_update(data):
-    trip_id = data.get('trip_id')
-    location = data.get('location')
     
-    if trip_id and trip_id in trip_stats.current_trips:
-        trip = trip_stats.current_trips[trip_id]
-        trip['current_location'] = location
-        if isinstance(location, dict):
-            trip['path'].append(location)
+    # Create a queue for this trip's frames
+    frame_queues[trip_id] = Queue()
+    
+    # Start a worker thread for this trip
+    worker_thread = threading.Thread(target=process_frames_worker, args=(trip_id,))
+    worker_thread.daemon = True
+    worker_thread.start()
+    
+    return {'trip_id': trip_id}
 
 @socketio.on('end_trip')
 def handle_end_trip(data):
-    trip_id = data.get('trip_id')
-    location = data.get('location', 'Location unavailable')
-    
-    if trip_id and trip_id in trip_stats.current_trips:
-        trip = trip_stats.current_trips[trip_id]
+    trip_id = request.sid
+    if trip_id in active_trips:
+        trip_data = active_trips[trip_id]
         end_time = datetime.now()
-        duration = (end_time - trip['start_time']).total_seconds()
+        end_location = data.get('location', 'Location unavailable')
         
-        # Update end location
-        trip['end_location'] = location
+        duration = end_time - trip_data['start_time']
+        duration_str = str(duration).split('.')[0]  # Format as HH:MM:SS
+        
+        # Clean up
+        del active_trips[trip_id]
+        if trip_id in frame_queues:
+            del frame_queues[trip_id]
         
         # Calculate trip statistics
         trip_stats.total_drives += 1
-        trip_stats.total_time += duration
+        trip_stats.total_time += duration.total_seconds()
         trip_stats.last_drive = end_time.strftime('%Y-%m-%d %H:%M:%S')
         
         # Format locations for display
-        start_loc = trip_stats.format_location(trip['start_location'])
-        end_loc = trip_stats.format_location(location)
+        start_loc = trip_stats.format_location(trip_data['start_location'])
+        end_loc = trip_stats.format_location(end_location)
         
         # Prepare trip summary
         trip_summary = {
-            'duration': format_duration(duration),
+            'duration': duration_str,
             'start_location': start_loc,
             'end_location': end_loc,
-            'start_time': trip['start_time'].strftime('%Y-%m-%d %H:%M:%S'),
+            'start_time': trip_data['start_time'].strftime('%Y-%m-%d %H:%M:%S'),
             'end_time': end_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'path': trip['path'] if 'path' in trip else []
+            'frames_processed': trip_data['frames_processed']
         }
-        
-        # Clean up
-        del trip_stats.current_trips[trip_id]
         
         # Emit updated stats to all clients
         socketio.emit('stats_update', {
@@ -298,7 +282,7 @@ def handle_end_trip(data):
         })
         
         return trip_summary
-    return {'error': 'Invalid trip ID'}
+    return {'error': 'Trip not found'}
 
 def format_duration(seconds):
     minutes, seconds = divmod(int(seconds), 60)
@@ -307,6 +291,93 @@ def format_duration(seconds):
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     return f"{minutes}:{seconds:02d}"
 
+def process_frames_worker(trip_id):
+    while trip_id in active_trips:
+        try:
+            if trip_id in frame_queues and not frame_queues[trip_id].empty():
+                frame_data = frame_queues[trip_id].get()
+                processed_frame = process_frame(frame_data)
+                if processed_frame:
+                    socketio.emit('processed_frame', processed_frame, room=trip_id)
+            else:
+                time.sleep(0.01)  # Short sleep to prevent CPU overuse
+        except Exception as e:
+            print(f"Error in worker thread: {str(e)}")
+            continue
+
+def process_frame(frame_data):
+    try:
+        # Remove the data URL prefix if present
+        if ',' in frame_data:
+            frame_data = frame_data.split(',')[1]
+        
+        # Decode base64 image
+        nparr = np.frombuffer(base64.b64decode(frame_data), np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            print("Failed to decode frame")
+            return None
+            
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Apply Gaussian blur
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Apply Canny edge detection
+        edges = cv2.Canny(blur, 50, 150)
+        
+        # Define region of interest
+        height, width = edges.shape
+        mask = np.zeros_like(edges)
+        polygon = np.array([[
+            (0, height),
+            (width, height),
+            (width//2, height//2)
+        ]], np.int32)
+        cv2.fillPoly(mask, polygon, 255)
+        masked_edges = cv2.bitwise_and(edges, mask)
+        
+        # Apply Hough transform
+        lines = cv2.HoughLinesP(
+            masked_edges,
+            rho=2,
+            theta=np.pi/180,
+            threshold=100,
+            minLineLength=40,
+            maxLineGap=50
+        )
+        
+        # Draw lines on the original frame
+        line_image = np.zeros_like(frame)
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        
+        # Combine the original frame with the line image
+        result = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
+        
+        # Add text overlay
+        cv2.putText(result, "Lane Detection Active", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        # Encode the processed frame
+        _, buffer = cv2.imencode('.jpg', result)
+        processed_frame = base64.b64encode(buffer).decode('utf-8')
+        
+        return processed_frame
+    except Exception as e:
+        print(f"Error processing frame: {str(e)}")
+        return None
+
 if __name__ == '__main__':
-    socketio.start_background_task(process_email_queue)
-    socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000))) 
+    try:
+        socketio.start_background_task(process_email_queue)
+        print("Starting DriveAI on http://localhost:3000")
+        socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 3000)), debug=True, allow_unsafe_werkzeug=True)
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+    except Exception as e:
+        print(f"Error starting server: {e}") 
