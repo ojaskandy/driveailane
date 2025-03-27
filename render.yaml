@@ -2,10 +2,16 @@ services:
   - type: web
     name: driveailane
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install --upgrade pip
+      pip install --prefer-binary -r requirements.txt
     startCommand: gunicorn --worker-class eventlet -w 1 app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9.18
+        value: 3.10.13
       - key: PYTHONUNBUFFERED
-        value: true 
+        value: true
+      - key: PIP_PREFER_BINARY
+        value: true
+    healthCheckPath: /
+    autoDeploy: true 
