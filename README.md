@@ -1,30 +1,31 @@
-# DriveSafe - Lane Detection System
+# Lane Detection GUI Application
 
-A real-time lane detection system using OpenCV and PyQt5 that processes live camera feed to identify and highlight road lanes.
+A real-time lane detection application that uses computer vision to detect and highlight lanes in a video feed. The application provides a side-by-side view of the raw camera feed and the processed view with detected lanes.
 
 ## Features
 
 - Real-time camera feed processing
 - Lane detection using OpenCV
-- Side-by-side view of raw and processed feed
+- Side-by-side view of raw and processed feeds
 - Simple and intuitive GUI interface
 
 ## Requirements
 
-- Python 3.7+
+- Python 3.x
 - OpenCV
-- PyQt5
 - NumPy
+- PyQt5
+- Matplotlib
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ojaskandy/drivesafe.git
-cd drivesafe
+git clone https://github.com/ojaskandy/driveailane.git
+cd driveailane
 ```
 
-2. Install dependencies:
+2. Install the required dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -33,24 +34,23 @@ pip install -r requirements.txt
 
 Run the application:
 ```bash
-python lane_detection_gui.py
+python3 lane_detection_gui.py
 ```
 
-The application will:
-- Open your default camera
-- Show the raw feed on the left
-- Show the processed feed with lane detection on the right
-- Update in real-time
-- Close properly when you close the window
+The application will open a window showing:
+- Left side: Raw camera feed
+- Right side: Processed view with detected lanes
 
-## How It Works
+## How it Works
 
-The application uses:
-- OpenCV for image processing and lane detection
-- PyQt5 for the GUI interface
-- Hough Transform for line detection
-- Region of Interest masking for focused processing
+The application uses the following steps for lane detection:
+1. Captures video feed from the camera
+2. Converts the frame to grayscale
+3. Applies Canny edge detection
+4. Defines a region of interest
+5. Uses Hough transform to detect lines
+6. Draws the detected lines on the processed view
 
 ## License
 
-MIT License 
+This project is open source and available under the MIT License. 

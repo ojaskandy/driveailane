@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Start Drive{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="text-center mb-0">Live Drive Detection</h2>
+            </div>
+            <div class="card-body">
+                <div class="video-container position-relative mb-4" style="min-height: 480px; background-color: #000;">
+                    <img id="video-feed" class="w-100 h-100 object-fit-contain" style="display: none;" alt="Live video feed">
+                    <div id="status" class="position-absolute top-50 start-50 translate-middle text-center text-white">
+                        <i class="bi bi-camera-video fs-1 mb-2 d-block"></i>
+                        <span class="fs-5">Click Start to begin detection</span>
+                    </div>
+                    <div id="detection-stats" class="position-absolute bottom-0 start-0 w-100 p-2 bg-dark bg-opacity-75 text-white" style="display: none;">
+                        <div class="row">
+                            <div class="col-4">
+                                <i class="bi bi-traffic-light"></i> Traffic Lights: <span id="light-count">0</span>
+                            </div>
+                            <div class="col-4">
+                                <i class="bi bi-person"></i> Pedestrians: <span id="person-count">0</span>
+                            </div>
+                            <div class="col-4">
+                                <i class="bi bi-signpost-2"></i> Lane Markings: <span id="lane-count">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <button id="startBtn" class="btn btn-primary btn-lg me-2">
+                        <i class="bi bi-play-fill"></i> Start Detection
+                    </button>
+                    <button id="stopBtn" class="btn btn-danger btn-lg" disabled>
+                        <i class="bi bi-stop-fill"></i> Stop Detection
+                    </button>
+                </div>
+                <div id="alerts" class="mt-4">
+                    <!-- Alerts will be dynamically added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const videoFeed = document.getElementById('video-feed');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const alerts = document.getElementById('alerts');
+        const status = document.getElementById('status');
+        const detectionStats = document.getElementById('detection-stats');
+        let isStreaming = false;
+        let statsUpdateInterval;
+
+        function updateDetectionStats() {
+            // This would ideally be connected to a WebSocket for real-time updates
+            // For now, we'll just show some example stats
+            document.getElementById('light-count').textContent = Math.floor(Math.random() * 5);
+            document.getElementById('person-count').textContent = Math.floor(Math.random() * 3);
+            document.getElementById('lane-count').textContent = Math.floor(Math.random() * 2);
+        }
+
+        startBtn.addEventListener('click', async function() {
+            if (!isStreaming) {
+                await startStream();
+            }
+        });
+
+        stopBtn.addEventListener('click', async function() {
+            if (isStreaming) {
+                await stopStream();
+            }
+        });
+
+        async function startStream() {
+            try {
+                status.style.display = 'block';
+                status.innerHTML = '<div class="spinner-border text-light" role="status"></div><br><span class="mt-2">Starting camera...</span>';
+                
+                // Start the video feed
+                videoFeed.src = "{{ url_for('video_feed') }}";
+                videoFeed.style.display = 'block';
+                
+                // Update UI state
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                isStreaming = true;
+                
+                // Handle video load
+                videoFeed.onload = function() {
+                    status.style.display = 'none';
+                    detectionStats.style.display = 'block';
+                    statsUpdateInterval = setInterval(updateDetectionStats, 1000);
+                    addAlert('Camera started successfully! Detecting traffic lights, pedestrians, and lane markings...', 'success');
+                };
+                
+                // Handle video error
+                videoFeed.onerror = function() {
+                    throw new Error('Failed to load video feed');
+                };
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addAlert('Failed to start camera. Please check your permissions and try again.', 'danger');
+                await stopStream();
+            }
+        }
+
+        async function stopStream() {
+            try {
+                clearInterval(statsUpdateInterval);
+                
+                // Stop the video feed
+                const response = await fetch("{{ url_for('stop_video') }}");
+                if (!response.ok) throw new Error('Failed to stop video feed');
+                
+                // Reset UI
+                videoFeed.src = '';
+                videoFeed.style.display = 'none';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                isStreaming = false;
+                status.style.display = 'block';
+                status.innerHTML = '<i class="bi bi-camera-video fs-1 mb-2 d-block"></i><span class="fs-5">Click Start to begin detection</span>';
+                detectionStats.style.display = 'none';
+                
+                addAlert('Detection stopped', 'info');
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addAlert('Error stopping camera: ' + error.message, 'warning');
+            }
+        }
+
+        function addAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            alerts.insertBefore(alertDiv, alerts.firstChild);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode === alerts) {
+                    alertDiv.classList.remove('show');
+                    setTimeout(() => alertDiv.remove(), 150);
+                }
+            }, 5000);
+        }
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (isStreaming) {
+                fetch("{{ url_for('stop_video') }}");
+            }
+        });
+
+        // Handle visibility change
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && isStreaming) {
+                stopStream();
+            }
+        });
+    });
+</script>
+{% endblock %} 

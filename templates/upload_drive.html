@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Demo{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="text-center mb-0">Upload Demo Video</h2>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" action="{{ url_for('upload_video') }}" method="post" enctype="multipart/form-data">
+                    <div class="mb-4">
+                        <label for="video" class="form-label">Choose a video file</label>
+                        <input type="file" class="form-control" id="video" name="video" accept="video/*" required>
+                        <div class="form-text">Supported formats: MP4, AVI, MOV</div>
+                    </div>
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-primary" id="uploadBtn">
+                            <i class="bi bi-upload"></i> Upload and Process
+                        </button>
+                    </div>
+                </form>
+
+                <div id="progressContainer" class="mt-4 d-none">
+                    <div class="progress mb-2">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                    <p class="text-center text-muted" id="progressStatus">Uploading video...</p>
+                </div>
+
+                <div class="video-container mt-4 d-none" id="resultContainer">
+                    <video id="processedVideo" controls class="w-100">
+                        <source src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div id="detectionResults" class="mt-3">
+                        <!-- Detection results will be added here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('uploadForm');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.querySelector('.progress-bar');
+        const progressStatus = document.getElementById('progressStatus');
+        const resultContainer = document.getElementById('resultContainer');
+        const processedVideo = document.getElementById('processedVideo');
+        const detectionResults = document.getElementById('detectionResults');
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(form);
+            
+            // Show progress
+            progressContainer.classList.remove('d-none');
+            resultContainer.classList.add('d-none');
+            
+            // Simulate upload progress (replace with actual upload logic)
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 5;
+                if (progress <= 100) {
+                    progressBar.style.width = progress + '%';
+                    progressBar.textContent = progress + '%';
+                    
+                    if (progress === 100) {
+                        clearInterval(interval);
+                        progressStatus.textContent = 'Processing video...';
+                        
+                        // Simulate processing delay (replace with actual processing)
+                        setTimeout(() => {
+                            progressContainer.classList.add('d-none');
+                            resultContainer.classList.remove('d-none');
+                            // Set the processed video source
+                            processedVideo.src = URL.createObjectURL(formData.get('video'));
+                            
+                            // Add example detection results (replace with actual results)
+                            detectionResults.innerHTML = `
+                                <div class="alert alert-info">
+                                    <h5>Detection Results:</h5>
+                                    <ul>
+                                        <li>Traffic Lights: 5 detected</li>
+                                        <li>Lane Markings: Continuous tracking</li>
+                                        <li>Pedestrians: 2 detected</li>
+                                    </ul>
+                                </div>
+                            `;
+                        }, 2000);
+                    }
+                }
+            }, 100);
+
+            // TODO: Implement actual video upload and processing
+            fetch(form.action, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Handle the response
+                console.log(data);
+                if (data.status === 'success') {
+                    progressContainer.classList.add('d-none');
+                    resultContainer.classList.remove('d-none');
+                    
+                    // Set the processed video source
+                    processedVideo.src = data.video_url;
+                    
+                    // Add detection results
+                    const trafficLights = data.detections.traffic_lights;
+                    detectionResults.innerHTML = `
+                        <div class="alert alert-info">
+                            <h5>Detection Results:</h5>
+                            <ul>
+                                <li>Traffic Lights (${trafficLights.total} total):
+                                    <ul>
+                                        <li>Red: ${trafficLights.details.red}</li>
+                                        <li>Yellow: ${trafficLights.details.yellow}</li>
+                                        <li>Green: ${trafficLights.details.green}</li>
+                                    </ul>
+                                </li>
+                                <li>Pedestrians: ${data.detections.pedestrians} detected</li>
+                                <li>Lane Markings: ${data.detections.lane_markings} detected</li>
+                                <li>Total Frames Processed: ${data.detections.frames_processed}</li>
+                            </ul>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Failed to process video');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                progressContainer.classList.add('d-none');
+                alert('An error occurred while processing the video: ' + error.message);
+            });
+        });
+    });
+</script>
+{% endblock %} 

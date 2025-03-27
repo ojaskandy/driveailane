@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: drivesafe
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.7
+    healthCheckPath: /
+    autoDeploy: true
+    branch: main
+    previewFeatureFlags:
+      - assetsPreserved

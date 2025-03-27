@@ -1,0 +1,20 @@
+# Core ML and CV dependencies
+ultralytics>=8.0.0  # YOLOv8
+opencv-python-headless==4.5.3.56  # OpenCV for image processing (headless version for server environments)
+numpy>=1.24.0  # Numerical operations
+pillow>=10.0.0  # Image processing
+torch>=2.0.0  # PyTorch
+torchvision>=0.15.0  # Computer vision operations
+
+# Web application dependencies
+flask>=2.0.0  # Web framework
+werkzeug>=2.0.0  # WSGI utilities
+gunicorn>=20.1.0  # Production WSGI server
+
+# Testing and development
+pytest>=7.0.0  # Testing framework
+python-dotenv>=1.0.0  # Environment management
+
+scikit-learn>=1.0.0
+scipy>=1.10.0
+matplotlib>=3.7.0 

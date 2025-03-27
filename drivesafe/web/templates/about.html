@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveSafe - About</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .about-section {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: white;
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .about-section h2 {
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .tech-section {
+            margin-top: 3rem;
+        }
+        
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .tech-card {
+            padding: 1.5rem;
+            text-align: center;
+            background-color: var(--light-bg);
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        .tech-card img {
+            height: 60px;
+            margin-bottom: 1rem;
+        }
+        
+        .team-section {
+            margin-top: 3rem;
+        }
+        
+        .cta-section {
+            margin-top: 3rem;
+            text-align: center;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 0.75rem 1.5rem;
+            background-color: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: var(--border-radius);
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+        
+        .cta-button:hover {
+            background-color: #3d8b40;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>DriveSafe</h1>
+    </div>
+    
+    <div class="content">
+        <div class="about-section">
+            <h2>About DriveSafe</h2>
+            <p>DriveSafe is an AI-powered application designed to enhance driving safety through real-time detection of traffic lights and road lanes. Using computer vision technology, DriveSafe processes video from your camera to identify potential hazards and provide valuable information to improve your driving decisions.</p>
+            
+            <p>Our mission is to make advanced driver assistance systems accessible to everyone through web-based technology, without requiring specialized hardware or installations.</p>
+            
+            <div class="tech-section">
+                <h3>Technology Stack</h3>
+                <p>DriveSafe leverages cutting-edge technology to deliver real-time AI processing directly in your browser:</p>
+                
+                <div class="tech-grid">
+                    <div class="tech-card">
+                        <h4>TensorFlow.js</h4>
+                        <p>Client-side machine learning framework that enables model execution directly in the browser.</p>
+                    </div>
+                    
+                    <div class="tech-card">
+                        <h4>YOLOv5</h4>
+                        <p>State-of-the-art object detection model optimized for real-time traffic light detection.</p>
+                    </div>
+                    
+                    <div class="tech-card">
+                        <h4>WebGL</h4>
+                        <p>Hardware-accelerated graphics API that powers our AI model's calculations.</p>
+                    </div>
+                    
+                    <div class="tech-card">
+                        <h4>Flask</h4>
+                        <p>Lightweight Python web framework that serves our application.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="team-section">
+                <h3>Project Background</h3>
+                <p>DriveSafe was developed as an innovative solution to enhance road safety using modern web technologies. The project aims to demonstrate how complex computer vision tasks can be performed directly in the browser, making sophisticated driving assistance accessible to anyone with a web browser.</p>
+                
+                <p>The traffic light detection model was trained on thousands of images of traffic intersections in various lighting and weather conditions to ensure robust performance across different scenarios.</p>
+            </div>
+            
+            <div class="cta-section">
+                <h3>Ready to try it out?</h3>
+                <p>Experience the power of real-time AI assistance for your driving.</p>
+                <a href="{{ url_for('start_drive') }}" class="cta-button">Start Driving</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>DriveSafe &copy; 2023 - All Rights Reserved</p>
+    </div>
+</body>
+</html> 

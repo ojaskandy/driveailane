@@ -1,0 +1,14 @@
+{
+  "format": "graph-model",
+  "modelTopology": {
+    "node": [],
+    "library": {},
+    "versions": {}
+  },
+  "weightsManifest": [
+    {
+      "paths": ["group1-shard1of1.bin"],
+      "weights": []
+    }
+  ]
+} 

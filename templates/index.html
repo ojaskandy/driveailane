@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="text-center mb-0">Welcome to DriveSafe</h2>
+            </div>
+            <div class="card-body">
+                <p class="text-center mb-4">
+                    DriveSafe helps you detect traffic lights, lane markings, and pedestrians in real-time.
+                    Choose an option below to get started.
+                </p>
+                <div class="d-grid gap-3">
+                    <a href="/start_drive" class="btn btn-primary btn-lg">
+                        <i class="bi bi-camera-video"></i> Start Live Drive
+                    </a>
+                    <a href="/upload_drive" class="btn btn-outline-primary btn-lg">
+                        <i class="bi bi-upload"></i> Upload Demo Video
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

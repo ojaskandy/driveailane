@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveSafe - Server Error</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1>DriveSafe</h1>
+    </div>
+    
+    <div class="content">
+        <div class="error-container">
+            <h1>500</h1>
+            <h2>Server Error</h2>
+            <p>Oops! Something went wrong on our end. Please try again later.</p>
+            <a href="{{ url_for('index') }}" class="btn">Return to Home</a>
+        </div>
+    </div>
+    
+    <style>
+        .error-container {
+            text-align: center;
+            padding: 3rem;
+            margin: 2rem auto;
+            max-width: 600px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .error-container h1 {
+            font-size: 8rem;
+            margin: 0;
+            color: #f44336;
+        }
+        
+        .error-container h2 {
+            font-size: 2rem;
+            margin-top: 0;
+        }
+        
+        .error-container p {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            color: #666;
+        }
+    </style>
+</body>
+</html> 

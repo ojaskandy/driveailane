@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Live Detection{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10 text-center">
+        <h2 class="mb-4">Live Hazard Detection</h2>
+        
+        <div class="video-container mb-4">
+            <img src="{{ url_for('video_feed') }}" class="img-fluid rounded" alt="Live Detection">
+        </div>
+        
+        <div class="controls mb-4">
+            <button id="stopButton" class="btn btn-danger">Stop Detection</button>
+        </div>
+        
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">Detection Active</h4>
+            <p>The system is actively monitoring for traffic hazards. Press 'Stop Detection' when finished.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('stopButton').addEventListener('click', function() {
+    fetch('/stop_camera')
+        .then(response => response.json())
+        .then(data => {
+            window.location.href = '/';
+        })
+        .catch(error => console.error('Error:', error));
+});
+</script>
+{% endblock %} 

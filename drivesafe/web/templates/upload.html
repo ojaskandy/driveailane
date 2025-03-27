@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Demo{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 text-center">
+        <h2 class="mb-4">Upload Demo Video</h2>
+        
+        <div class="card">
+            <div class="card-body">
+                <form id="uploadForm" class="mb-4">
+                    <div class="mb-3">
+                        <label for="video" class="form-label">Choose a video file</label>
+                        <input type="file" class="form-control" id="video" name="video" accept="video/*" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload and Process</button>
+                </form>
+                
+                <div id="uploadStatus" class="alert alert-info d-none">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2">Processing video...</span>
+                </div>
+                
+                <div id="results" class="d-none">
+                    <h4>Detection Results</h4>
+                    <video id="processedVideo" class="img-fluid rounded" controls>
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData();
+    const videoFile = document.getElementById('video').files[0];
+    formData.append('video', videoFile);
+    
+    // Show upload status
+    document.getElementById('uploadStatus').classList.remove('d-none');
+    
+    fetch('/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('uploadStatus').classList.add('d-none');
+        document.getElementById('results').classList.remove('d-none');
+        // You can implement video playback here
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('uploadStatus').innerHTML = 'Error uploading video';
+        document.getElementById('uploadStatus').classList.replace('alert-info', 'alert-danger');
+    });
+});
+</script>
+{% endblock %} 
