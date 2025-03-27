@@ -1,14 +1,9 @@
 services:
   - type: web
-    name: drivesafe
+    name: lane-detection
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: python app.py
     envVars:
       - key: PYTHON_VERSION
-        value: 3.9.7
-    healthCheckPath: /
-    autoDeploy: true
-    branch: main
-    previewFeatureFlags:
-      - assetsPreserved
+        value: 3.9.0 
