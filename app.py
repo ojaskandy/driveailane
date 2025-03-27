@@ -18,6 +18,7 @@ from queue import Queue
 import time
 import pygame
 import math
+import collections
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -53,6 +54,10 @@ class TripStats:
 
 trip_stats = TripStats()
 
+# Add these as global variables after other globals
+line_history = collections.deque(maxlen=5)  # Store last 5 frames of line positions
+dashboard_height_ratio = 0.3  # 30% of frame height for dashboard
+
 def region_of_interest(img, vertices):
     mask = np.zeros_like(img)
     match_mask_color = 255
@@ -84,6 +89,59 @@ def get_roi_vertices(height, width):
             (width, height)
         ]], dtype=np.int32)
     return roi_cache[cache_key]
+
+def extrapolate_line(lines, height):
+    if not lines:
+        return None
+    slopes = [(y2 - y1) / (x2 - x1) for line in lines for x1, y1, x2, y2 in [line[0]] if x2 - x1 != 0]
+    if not slopes:
+        return None
+    avg_slope = np.mean(slopes)
+    avg_x = np.mean([x1 for line in lines for x1, _, _, _ in [line[0]]])
+    avg_y = np.mean([y1 for line in lines for _, y1, _, _ in [line[0]]])
+    
+    y_bottom = height
+    x_bottom = int(avg_x + (y_bottom - avg_y) / avg_slope) if avg_slope != 0 else int(avg_x)
+    y_top = int(height * 0.4)  # Extend to 40% of frame height
+    x_top = int(avg_x + (y_top - avg_y) / avg_slope) if avg_slope != 0 else int(avg_x)
+    
+    return np.array([[x_top, y_top, x_bottom, y_bottom]])
+
+def smooth_lines(new_lines, side='left'):
+    global line_history
+    if new_lines is None:
+        return None
+    
+    line_history.append(new_lines)
+    if len(line_history) < 2:
+        return new_lines
+        
+    # Calculate weighted average of line positions
+    weights = np.linspace(0.5, 1.0, len(line_history))
+    weighted_lines = np.average(line_history, axis=0, weights=weights)
+    return weighted_lines.astype(int)
+
+def detect_dashboard_edge(frame, height, width):
+    # Look at bottom half of frame
+    bottom_half = frame[height//2:, :]
+    edges = cv2.Canny(bottom_half, 50, 150)
+    
+    # Find horizontal lines
+    lines = cv2.HoughLinesP(
+        edges,
+        rho=1,
+        theta=np.pi/180,
+        threshold=50,
+        minLineLength=width//2,
+        maxLineGap=50
+    )
+    
+    if lines is not None:
+        # Find highest horizontal line (lowest y-value)
+        dashboard_y = min(line[0][1] for line in lines) + height//2
+        return min(dashboard_y, int(height * 0.4))  # Cap at 40% of frame height
+    
+    return int(height * dashboard_height_ratio)
 
 def process(image):
     try:
@@ -408,53 +466,68 @@ def process_frame(frame):
         # Get frame dimensions
         height, width = frame.shape[:2]
         
-        # Define dashboard area (yellow rectangle) dimensions
-        dashboard_height = int(height * 0.25)  # Bottom 25% of frame is dashboard
-        dashboard_y = height - dashboard_height  # Y coordinate for top of dashboard
+        # Detect dashboard edge (or use static height)
+        dashboard_y = detect_dashboard_edge(frame, height, width)
         
-        # Convert to HSV for better color filtering
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        # Create a copy for preprocessing
+        working_frame = frame.copy()
         
-        # Define color ranges for white and yellow lanes (adjusted for real-world conditions)
-        # White is now more tolerant of different lighting conditions
-        white_lower = np.array([0, 0, 160])  # Lowered value threshold
-        white_upper = np.array([180, 45, 255])  # Increased saturation threshold
+        # Apply histogram equalization to improve contrast
+        gray = cv2.cvtColor(working_frame, cv2.COLOR_BGR2GRAY)
+        equalized = cv2.equalizeHist(gray)
         
-        # Yellow is now more tolerant of faded lines
-        yellow_lower = np.array([15, 40, 100])  # Adjusted for faded yellow
-        yellow_upper = np.array([35, 255, 255])  # Wider hue range
+        # Convert to HSV and LAB color spaces
+        hsv = cv2.cvtColor(working_frame, cv2.COLOR_BGR2HSV)
+        lab = cv2.cvtColor(working_frame, cv2.COLOR_BGR2LAB)
         
-        # Create masks for white and yellow lanes
-        white_mask = cv2.inRange(hsv, white_lower, white_upper)
-        yellow_mask = cv2.inRange(hsv, yellow_lower, yellow_upper)
+        # Define color ranges for white and yellow lanes
+        white_lower = np.array([0, 0, 200])    # Tightened for pure whites
+        white_upper = np.array([180, 30, 255])
+        yellow_lower = np.array([20, 100, 100]) # Narrowed hue range
+        yellow_upper = np.array([30, 255, 255])
+        
+        # Create masks for white and yellow lanes in HSV
+        white_mask_hsv = cv2.inRange(hsv, white_lower, white_upper)
+        yellow_mask_hsv = cv2.inRange(hsv, yellow_lower, yellow_upper)
+        
+        # Create yellow mask in LAB space
+        yellow_mask_lab = cv2.inRange(lab, np.array([50, 110, 110]), np.array([255, 145, 145]))
         
         # Combine masks
-        combined_mask = cv2.bitwise_or(white_mask, yellow_mask)
+        yellow_mask = cv2.bitwise_or(yellow_mask_hsv, yellow_mask_lab)
+        combined_mask = cv2.bitwise_or(white_mask_hsv, yellow_mask)
         
-        # Apply morphological operations to enhance lane markings
-        kernel = np.ones((3,3), np.uint8)
+        # Apply morphological operations
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
         combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
         
-        # Create dashboard mask to exclude dashboard area from lane detection
-        dashboard_mask = np.ones_like(combined_mask)
-        dashboard_mask[dashboard_y:, :] = 0  # Mask out dashboard area
+        # Dilate to enhance lane markings
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        combined_mask = cv2.dilate(combined_mask, kernel, iterations=1)
         
-        # Apply dashboard mask to combined mask
+        # Create and apply dashboard mask
+        dashboard_mask = np.ones_like(combined_mask)
+        dashboard_mask[dashboard_y:, :] = 0
         combined_mask = cv2.bitwise_and(combined_mask, dashboard_mask)
         
-        # Apply Gaussian blur to reduce noise
-        blur = cv2.GaussianBlur(combined_mask, (5, 5), 0)
+        # Apply adaptive thresholding
+        adaptive_thresh = cv2.adaptiveThreshold(
+            equalized, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            11, 2
+        )
         
-        # Apply Canny edge detection with optimized parameters
-        edges = cv2.Canny(blur, 30, 150)  # Lowered minimum threshold
+        # Combine with color mask
+        edges = cv2.bitwise_and(adaptive_thresh, combined_mask)
         
-        # Define region of interest - make it more focused on the road
+        # Define ROI vertices
         roi_vertices = np.array([[
-            (0, height),                    # Bottom left
-            (0, dashboard_y),               # Top left
-            (width, dashboard_y),           # Top right
-            (width, height)                 # Bottom right
+            (0, height),
+            (0, dashboard_y),
+            (width, dashboard_y),
+            (width, height)
         ]], dtype=np.int32)
         
         # Apply ROI mask
@@ -462,84 +535,78 @@ def process_frame(frame):
         cv2.fillPoly(mask, roi_vertices, 255)
         masked_edges = cv2.bitwise_and(edges, mask)
         
-        # Apply Hough transform with optimized parameters
+        # Apply Hough transform
         lines = cv2.HoughLinesP(
             masked_edges,
             rho=1,
             theta=np.pi/180,
-            threshold=25,            # Lowered threshold for better detection
-            minLineLength=40,        # Shortened minimum line length
-            maxLineGap=150          # Increased max gap to connect broken lines
+            threshold=20,
+            minLineLength=50,
+            maxLineGap=200
         )
         
-        # Draw lines on the original frame
+        # Process detected lines
         line_image = np.zeros_like(frame)
         if lines is not None:
-            # Separate left and right lane lines
             left_lines = []
             right_lines = []
             
+            # Previous frame's slopes for consistency check
+            prev_left_slope = None
+            prev_right_slope = None
+            
             for line in lines:
                 x1, y1, x2, y2 = line[0]
+                
                 # Skip if line is in dashboard area
                 if y1 > dashboard_y or y2 > dashboard_y:
                     continue
-                    
+                
                 if x2 - x1 == 0:  # Skip vertical lines
                     continue
-                    
+                
                 slope = (y2 - y1) / (x2 - x1)
                 
-                # Filter lines by slope and position (adjusted for real-world conditions)
-                if 0.2 < abs(slope) < 2.5:  # Wider slope range
+                # Filter lines by slope and position
+                if 0.2 < abs(slope) < 2.5:
+                    # Check slope consistency if we have previous slopes
                     if slope < 0 and x1 < width/2:  # Left lane
-                        left_lines.append(line)
+                        if prev_left_slope is None or abs(slope - prev_left_slope) < 0.5:
+                            left_lines.append(line)
+                            prev_left_slope = slope
                     elif slope > 0 and x1 > width/2:  # Right lane
-                        right_lines.append(line)
+                        if prev_right_slope is None or abs(slope - prev_right_slope) < 0.5:
+                            right_lines.append(line)
+                            prev_right_slope = slope
             
-            # Function to average and extrapolate lines
-            def average_lines(lines):
-                if not lines:
-                    return None
-                    
-                avg_line = np.mean(lines, axis=0, dtype=np.int32)
-                x1, y1, x2, y2 = avg_line[0]
-                slope = (y2 - y1) / (x2 - x1) if x2 != x1 else 0
-                
-                # Extrapolate to bottom of frame (just above dashboard)
-                y_bottom = dashboard_y
-                x_bottom = int(x1 + (y_bottom - y1) / slope) if slope != 0 else x1
-                
-                # Extrapolate to top of ROI
-                y_top = int(height * 0.45)  # Extended higher up
-                x_top = int(x1 + (y_top - y1) / slope) if slope != 0 else x1
-                
-                return np.array([[x_top, y_top, x_bottom, y_bottom]])
+            # Extrapolate and smooth lines
+            left_line = extrapolate_line(left_lines, height)
+            right_line = extrapolate_line(right_lines, height)
             
-            # Get averaged lines
-            left_line = average_lines(left_lines)
-            right_line = average_lines(right_lines)
+            # Apply temporal smoothing
+            left_line = smooth_lines(left_line, 'left')
+            right_line = smooth_lines(right_line, 'right')
             
-            # Draw the averaged lines
+            # Draw the smoothed lines
             if left_line is not None:
-                cv2.line(line_image, 
-                        (left_line[0][0], left_line[0][1]), 
-                        (left_line[0][2], left_line[0][3]), 
+                cv2.line(line_image,
+                        (left_line[0][0], left_line[0][1]),
+                        (left_line[0][2], left_line[0][3]),
                         (0, 255, 0), 3)
             if right_line is not None:
-                cv2.line(line_image, 
-                        (right_line[0][0], right_line[0][1]), 
-                        (right_line[0][2], right_line[0][3]), 
+                cv2.line(line_image,
+                        (right_line[0][0], right_line[0][1]),
+                        (right_line[0][2], right_line[0][3]),
                         (0, 255, 0), 3)
         
-        # Combine the original frame with the line image
+        # Combine original frame with line image
         result = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
         
-        # Draw dashboard rectangle (yellow) - full width
+        # Draw dashboard area
         cv2.rectangle(result, (0, dashboard_y), (width, height), (0, 255, 255), 2)
         
         # Add text overlay
-        cv2.putText(result, "Lane Detection Active", (10, 30), 
+        cv2.putText(result, "Lane Detection Active", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
         # Check for lane departure
@@ -551,8 +618,6 @@ def process_frame(frame):
             warning_text = f"Lane Departure Warning: {departure_direction.upper()}"
             cv2.putText(result, warning_text, (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            
-            # Play beep sound
             socketio.emit('play_beep', {'direction': departure_direction})
         
         # Encode the processed frame
