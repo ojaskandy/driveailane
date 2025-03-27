@@ -19,6 +19,8 @@ import time
 import pygame
 import math
 import collections
+from scipy.optimize import lsq_linear
+from collections import deque
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -57,6 +59,157 @@ trip_stats = TripStats()
 # Add these as global variables after other globals
 line_history = collections.deque(maxlen=5)  # Store last 5 frames of line positions
 dashboard_height_ratio = 0.3  # 30% of frame height for dashboard
+
+# Constants from their implementation
+IMAGE_WIDTH = 640
+IMAGE_HEIGHT = 360
+LANE_WIDTH = 1.5
+BOUNDARY_THRESH = 1.8
+HORIZON = -40.1
+FILTER_STRENGTH = 1
+
+class LaneDetector:
+    def __init__(self):
+        self.v = np.arange(0, IMAGE_HEIGHT, 1)
+        self.u = np.arange(0, IMAGE_WIDTH, 1)
+        self.threshold = BOUNDARY_THRESH
+        self.lane_width = LANE_WIDTH
+        self.h = HORIZON
+        self.k = 0
+        self.bl = 0
+        self.br = 0
+        self.bc = 0
+        self.c = 0
+        self.bcdq = deque(maxlen=FILTER_STRENGTH)
+        self.bldq = deque(maxlen=FILTER_STRENGTH)
+        self.brdq = deque(maxlen=FILTER_STRENGTH)
+        self.left_lane_points = np.array([])
+        self.right_lane_points = np.array([])
+        self.lane = np.array([])
+        self.low_b = np.array([-500000, -8, -8, IMAGE_WIDTH/2 -20])
+        self.up_b = np.array([500000, 8, 8, IMAGE_WIDTH/2 +20])
+
+    def hyperbola_pair(self, b):
+        return self.k/(self.v-self.h)+b*(self.v-self.h)+self.c
+
+    def process_frame(self, frame):
+        # Resize frame
+        frame = cv2.resize(frame, (IMAGE_WIDTH, IMAGE_HEIGHT))
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Apply Gaussian blur
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Apply Sobel edge detection
+        sobelx = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
+        abs_sobelx = np.absolute(sobelx)
+        scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+        
+        # Apply binary threshold
+        _, binary = cv2.threshold(scaled_sobel, 50, 255, cv2.THRESH_BINARY)
+        
+        # Get lane points
+        self.get_initial_lane_points(binary)
+        
+        # Solve for lane parameters
+        self.solve_lane()
+        
+        # Draw detected lanes
+        result = self.draw_lanes(frame)
+        
+        return result
+
+    def get_initial_lane_points(self, edge_image):
+        image_height = edge_image.shape[0]
+        image_width = edge_image.shape[1]
+
+        left_lane_points = np.empty((image_height, 1))
+        left_lane_points[:] = np.NAN
+        right_lane_points = np.empty((image_height, 1))
+        right_lane_points[:] = np.NAN
+
+        lane_numbers = np.arange(image_width)
+        edge_image = edge_image / 255
+
+        for row in range(image_height-1, -1, -1):
+            curr_row = np.multiply((lane_numbers - image_height), edge_image[row, :])
+            points_to_the_right = np.where(curr_row > 0)[0]
+            points_to_the_left = np.where(curr_row < 0)[0]
+            if points_to_the_right.size > 0:
+                right_lane_points[row] = np.amin(points_to_the_right)
+            if points_to_the_left.size > 0:
+                left_lane_points[row] = np.amax(points_to_the_left)
+            if row == 300:
+                break
+        self.left_lane_points = left_lane_points
+        self.right_lane_points = right_lane_points
+
+    def solve_lane(self):
+        A, b = self.preprocess_for_solving()
+        self.solving_lane_params(A, b)
+
+    def preprocess_for_solving(self):
+        l = self.left_lane_points
+        r = self.right_lane_points
+        l_ind = ~np.isnan(l)
+        r_ind = ~np.isnan(r)
+        l_num = l[l_ind]
+        r_num = r[r_ind]
+        vl = self.v[l_ind.flatten()]
+        vr = self.v[r_ind.flatten()]
+        l_num = l_num.reshape((len(l_num), 1))
+        r_num = r_num.reshape((len(r_num), 1))
+        vl = vl.reshape(l_num.shape)
+        vr = vr.reshape(r_num.shape)
+
+        lh = (vl-self.h)
+        lA = 1/lh
+        rh = (vr-self.h)
+        rA = 1/rh
+        ones = np.ones(l_num.shape)
+        zeros = np.zeros(l_num.shape)
+        LA = np.hstack((np.hstack((lA, lh)), np.hstack((zeros, ones))))
+        ones = np.ones(r_num.shape)
+        zeros = np.zeros(r_num.shape)
+        RA = np.hstack((np.hstack((rA, zeros)), np.hstack((rh, ones))))
+        A = np.vstack((LA, RA))
+        b = (np.concatenate((l_num, r_num))).flatten()
+        return A, b
+
+    def solving_lane_params(self, A, b):
+        x = lsq_linear(A, b, bounds=(self.low_b, self.up_b), method='bvls', max_iter=3).x
+        self.k = x[0]
+        self.bl = x[1]
+        self.br = x[2]
+        self.c = x[3]
+        self.bc = (x[1]+x[2])/2
+        self.lane = self.hyperbola_pair(self.bc)
+
+    def draw_lanes(self, frame):
+        if len(self.lane) > 0:
+            # Draw left lane
+            left_points = np.column_stack((self.hyperbola_pair(self.bl).astype(np.int32), self.v.astype(np.int32)))
+            left_points = left_points[left_points[:, 0] >= 0]
+            left_points = left_points[left_points[:, 0] < frame.shape[1]]
+            cv2.polylines(frame, [left_points], False, (0, 0, 255), 2)
+
+            # Draw right lane
+            right_points = np.column_stack((self.hyperbola_pair(self.br).astype(np.int32), self.v.astype(np.int32)))
+            right_points = right_points[right_points[:, 0] >= 0]
+            right_points = right_points[right_points[:, 0] < frame.shape[1]]
+            cv2.polylines(frame, [right_points], False, (0, 0, 255), 2)
+
+            # Draw center lane
+            center_points = np.column_stack((self.lane.astype(np.int32), self.v.astype(np.int32)))
+            center_points = center_points[center_points[:, 0] >= 0]
+            center_points = center_points[center_points[:, 0] < frame.shape[1]]
+            cv2.polylines(frame, [center_points], False, (0, 255, 0), 2)
+
+        return frame
+
+lane_detector = LaneDetector()
 
 def region_of_interest(img, vertices):
     mask = np.zeros_like(img)
@@ -269,30 +422,28 @@ def handle_disconnect():
         del frame_queues[request.sid]
 
 @socketio.on('frame')
-def handle_frame(frame_data):
-    try:
-        # Ensure we're getting just the base64 data
-        if isinstance(frame_data, str):
-            if ',' in frame_data:
-                frame_data = frame_data.split(',')[1]
+def handle_frame(data):
+    if data.startswith('data:image'):
+        # Extract the actual base64 data
+        base64_data = data.split(',')[1]
+    else:
+        base64_data = data
+
+    # Decode base64 image
+    image_data = base64.b64decode(base64_data)
+    nparr = np.frombuffer(image_data, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if frame is not None:
+        # Process frame using lane detection
+        processed_frame = lane_detector.process_frame(frame)
         
-        # Decode the base64 image
-        nparr = np.frombuffer(base64.b64decode(frame_data), np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # Encode processed frame to base64
+        _, buffer = cv2.imencode('.jpg', processed_frame)
+        processed_base64 = base64.b64encode(buffer).decode('utf-8')
         
-        if frame is None:
-            print("Failed to decode frame")
-            return None
-            
-        # Process the frame
-        processed_frame = process_frame(frame)
-        if processed_frame:
-            # Ensure we're sending just the base64 data without the data URL prefix
-            if processed_frame.startswith('data:image/jpeg;base64,'):
-                processed_frame = processed_frame.split(',')[1]
-            emit('processed_frame', processed_frame)
-    except Exception as e:
-        print(f"Error handling frame: {str(e)}")
+        # Send processed frame back to client
+        socketio.emit('processed_frame', processed_base64)
 
 @socketio.on('start_trip')
 def handle_start_trip(data):
