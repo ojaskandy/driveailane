@@ -175,19 +175,21 @@ def drive():
 
 @app.route('/join-waitlist', methods=['POST'])
 def join_waitlist():
-    try:
-        data = request.get_json()
+    data = request.get_json()
+    if data and 'email' in data:
         email = data.get('email')
-        if email:
-            if notify_new_signup(email):
-                return jsonify({'status': 'success'})
-        return jsonify({'status': 'error', 'message': 'Invalid email'}), 400
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        if notify_new_signup(email):
+            return jsonify({'status': 'success'})
+    return jsonify({'status': 'error', 'message': 'Invalid email'}), 400
 
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
+    emit('stats_update', {
+        'total_drives': trip_stats.total_drives,
+        'total_time': format_duration(trip_stats.total_time),
+        'last_drive': trip_stats.last_drive or 'Never'
+    })
 
 @socketio.on('disconnect')
 def handle_disconnect():
