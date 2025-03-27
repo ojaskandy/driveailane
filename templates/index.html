@@ -105,7 +105,13 @@
                 cameraPermission.style.display = 'none';
                 status.textContent = 'Connected';
                 status.className = 'connected';
-                startFrameCapture();
+                
+                // Wait for video to be ready before starting capture
+                rawFeed.addEventListener('loadedmetadata', () => {
+                    canvas.width = rawFeed.videoWidth;
+                    canvas.height = rawFeed.videoHeight;
+                    startFrameCapture();
+                });
             } catch (err) {
                 console.error('Error accessing camera:', err);
                 cameraPermission.style.display = 'block';
@@ -115,16 +121,13 @@
         }
 
         function startFrameCapture() {
-            canvas.width = rawFeed.videoWidth;
-            canvas.height = rawFeed.videoHeight;
-            
             setInterval(() => {
                 if (rawFeed.readyState === rawFeed.HAVE_ENOUGH_DATA) {
                     context.drawImage(rawFeed, 0, 0, canvas.width, canvas.height);
                     const frame = canvas.toDataURL('image/jpeg', 0.8);
                     socket.emit('frame', frame);
                 }
-            }, 100); // Send frame every 100ms
+            }, 33); // ~30 FPS for smoother video
         }
 
         socket.on('connect', () => {

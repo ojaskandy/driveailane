@@ -29,26 +29,35 @@ def draw_the_lines(img, lines):
     return img
 
 def process(image):
-    height = image.shape[0]
-    width = image.shape[1]
-    region_of_interest_vertices = [
-        (0, height),
-        (width/2, height/2),
-        (width, height)
-    ]
-    gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    canny_image = cv2.Canny(gray_image, 100, 120)
-    cropped_image = region_of_interest(canny_image,
-                    np.array([region_of_interest_vertices], np.int32),)
-    lines = cv2.HoughLinesP(cropped_image,
-                            rho=2,
-                            theta=np.pi/180,
-                            threshold=50,
-                            lines=np.array([]),
-                            minLineLength=40,
-                            maxLineGap=100)
-    image_with_lines = draw_the_lines(image, lines)
-    return image_with_lines
+    try:
+        height = image.shape[0]
+        width = image.shape[1]
+        region_of_interest_vertices = [
+            (0, height),
+            (width/2, height/2),
+            (width, height)
+        ]
+        gray_image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        canny_image = cv2.Canny(gray_image, 100, 120)
+        cropped_image = region_of_interest(canny_image,
+                        np.array([region_of_interest_vertices], np.int32),)
+        lines = cv2.HoughLinesP(cropped_image,
+                                rho=2,
+                                theta=np.pi/180,
+                                threshold=50,
+                                lines=np.array([]),
+                                minLineLength=40,
+                                maxLineGap=100)
+        
+        # Handle case where no lines are detected
+        if lines is None:
+            return image
+            
+        image_with_lines = draw_the_lines(image, lines)
+        return image_with_lines
+    except Exception as e:
+        print(f"Error in process function: {str(e)}")
+        return image  # Return original image if processing fails
 
 def encode_frame(frame):
     _, buffer = cv2.imencode('.jpg', frame)
@@ -70,20 +79,35 @@ def handle_disconnect():
 def handle_frame(data):
     try:
         # Remove the data URL prefix
+        if ',' not in data:
+            return
         encoded_data = data.split(',')[1]
+        
         # Decode base64 image
         nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+        if nparr.size == 0:
+            return
+            
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+        if frame is None:
+            return
+            
         # Process frame
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        processed_frame = process(frame_rgb)
         
-        # Encode processed frame
-        processed_frame_encoded = encode_frame(processed_frame)
-        
-        # Send processed frame back to client
-        socketio.emit('processed_frame', processed_frame_encoded)
+        try:
+            processed_frame = process(frame_rgb)
+            if processed_frame is None:
+                return
+                
+            # Encode processed frame
+            processed_frame_encoded = encode_frame(processed_frame)
+            
+            # Send processed frame back to client
+            socketio.emit('processed_frame', processed_frame_encoded)
+        except Exception as e:
+            print(f"Error in lane detection: {str(e)}")
+            
     except Exception as e:
         print(f"Error processing frame: {str(e)}")
 
