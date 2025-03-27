@@ -6,13 +6,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
-            --primary-color: #2c3e50;
-            --secondary-color: #3498db;
-            --accent-color: #00ff88;
-            --success-color: #2ecc71;
-            --error-color: #e74c3c;
-            --background-color: #0a0a0a;
-            --text-color: #ffffff;
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --background-color: #f8f9fa;
+            --text-color: #343a40;
         }
 
         body {
@@ -196,7 +195,7 @@
 
         #status.disconnected {
             background: rgba(231, 76, 60, 0.2);
-            color: var(--error-color);
+            color: var(--danger-color);
         }
 
         .back-button {
@@ -231,16 +230,65 @@
                 padding: 1rem;
             }
         }
+
+        .warning-text {
+            color: red;
+            font-weight: bold;
+            margin: 10px 0;
+            text-align: center;
+            display: none;
+        }
+
+        /* Add camera selection styles */
+        .camera-selection {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: var(--background-color);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .camera-selection label {
+            margin-right: 10px;
+            font-weight: bold;
+            color: var(--text-color);
+        }
+
+        .camera-selection select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .camera-selection select:hover {
+            border-color: var(--primary-color);
+        }
+
+        .camera-selection select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
     </style>
 </head>
 <body>
     <a href="/dashboard" class="back-button">← Back to Dashboard</a>
 
     <div class="container">
+        <div class="camera-selection">
+            <label for="cameraSource">Camera Source:</label>
+            <select id="cameraSource" onchange="switchCamera(this.value)">
+                <option value="default">Select Camera...</option>
+            </select>
+            <button onclick="requestCamera()" class="action-button">Enable Camera</button>
+        </div>
+
         <div id="camera-permission">
-            <h3>Camera Access Required</h3>
-            <p>Please allow camera access to use the lane detection system.</p>
-            <button class="action-button" onclick="requestCamera()">Enable Camera</button>
+            <h2>Camera Access Required</h2>
+            <p>Please allow access to your camera to continue.</p>
         </div>
 
         <div class="video-container" style="display: none;">
@@ -260,7 +308,9 @@
             </div>
         </div>
 
-        <div class="controls">
+        <div id="warningText" class="warning-text"></div>
+
+        <div class="controls" style="display: none;">
             <button id="startDrive" class="action-button" onclick="startDrive()" disabled>Start Drive</button>
             <button id="stopDrive" class="action-button" onclick="stopDrive()" style="display: none;">Stop Drive</button>
         </div>
@@ -294,13 +344,129 @@
 
     <div id="status" class="disconnected">Disconnected</div>
 
+    <audio id="beepSound" src="/static/sounds/beep.wav"></audio>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
         let socket = io();
-        let stream = null;
+        let localStream = null;
+        let currentCamera = null;
         let isProcessing = false;
-        let currentTripId = null;
         let frameCapture = null;
+
+        // Function to enumerate and populate available cameras
+        async function listCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                const select = document.getElementById('cameraSource');
+                
+                // Clear existing options except the default
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+                
+                // Add detected cameras
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${index + 1}`;
+                    select.add(option);
+                });
+
+                // If iPhone camera is available (label contains "iPhone" or similar), select it by default
+                const iPhoneCamera = videoDevices.find(device => 
+                    device.label.toLowerCase().includes('iphone') || 
+                    device.label.toLowerCase().includes('continuity'));
+                    
+                if (iPhoneCamera) {
+                    select.value = iPhoneCamera.deviceId;
+                    await switchCamera(iPhoneCamera.deviceId);
+                }
+            } catch (err) {
+                console.error('Error listing cameras:', err);
+            }
+        }
+
+        // Update requestCamera function to handle camera selection
+        async function requestCamera() {
+            try {
+                const cameraId = document.getElementById('cameraSource').value;
+                if (cameraId === 'default') {
+                    alert('Please select a camera first');
+                    return;
+                }
+
+                const constraints = {
+                    video: {
+                        deviceId: cameraId ? { exact: cameraId } : undefined,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+                
+                // Release existing stream if any
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                }
+
+                // Request camera access
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                
+                // Set up video element
+                const videoElement = document.getElementById('rawFeed');
+                videoElement.srcObject = localStream;
+                await videoElement.play();
+                
+                // Show video container and controls
+                document.getElementById('camera-permission').style.display = 'none';
+                document.querySelector('.video-container').style.display = 'grid';
+                document.querySelector('.controls').style.display = 'flex';
+                document.getElementById('startDrive').disabled = false;
+                
+                // Add active class to video content
+                videoElement.parentElement.classList.add('active');
+
+                // Start frame capture for processing
+                startFrameCapture();
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                alert('Error accessing camera. Please ensure camera permissions are granted and try again.');
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                    localStream = null;
+                }
+            }
+        }
+
+        // Add camera switching function
+        async function switchCamera(deviceId) {
+            if (currentCamera === deviceId) return;
+            currentCamera = deviceId;
+            
+            // Stop current stream and processing
+            stopProcessing();
+            
+            // Request camera access with new device
+            await requestCamera();
+        }
+
+        // Initialize camera list when page loads
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Request initial camera permissions
+                await navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(stream => {
+                        stream.getTracks().forEach(track => track.stop());
+                        listCameras();
+                    });
+            } catch (err) {
+                console.error('Error initializing cameras:', err);
+            }
+        });
+
+        // Update camera list when devices change
+        navigator.mediaDevices.addEventListener('devicechange', listCameras);
 
         // Socket.IO event handlers
         socket.on('connect', () => {
@@ -316,37 +482,30 @@
 
         socket.on('processed_frame', (frameData) => {
             const img = document.getElementById('processedFeed');
-            img.src = 'data:image/jpeg;base64,' + frameData;
+            if (frameData.startsWith('data:image/jpeg;base64,')) {
+                img.src = frameData;
+            } else {
+                img.src = 'data:image/jpeg;base64,' + frameData;
+            }
             img.parentElement.classList.add('active');
         });
 
-        // Camera handling
-        async function requestCamera() {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        facingMode: 'environment'
-                    } 
-                });
-                
-                const video = document.getElementById('rawFeed');
-                video.srcObject = stream;
-                video.parentElement.classList.add('active');
-                
-                // Show video container and enable Start Drive button
-                document.querySelector('.video-container').style.display = 'grid';
-                document.getElementById('camera-permission').style.display = 'none';
-                document.getElementById('startDrive').disabled = false;
-                
-                return true;
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                alert('Failed to access camera. Please ensure camera permissions are granted.');
-                return false;
-            }
-        }
+        socket.on('play_beep', function(data) {
+            const beepSound = document.getElementById('beepSound');
+            const warningText = document.getElementById('warningText');
+            
+            // Play beep sound
+            beepSound.play();
+            
+            // Show warning text
+            warningText.textContent = `Lane Departure Warning: ${data.direction.toUpperCase()}`;
+            warningText.style.display = 'block';
+            
+            // Hide warning after 2 seconds
+            setTimeout(() => {
+                warningText.style.display = 'none';
+            }, 2000);
+        });
 
         function stopProcessing() {
             isProcessing = false;
@@ -357,28 +516,24 @@
             document.querySelectorAll('.video-content').forEach(el => el.classList.remove('active'));
         }
 
-        // Frame capture and processing
+        // Update startFrameCapture to handle different sources
         function startFrameCapture() {
-            if (!stream || isProcessing) return;
-            
-            isProcessing = true;
-            const video = document.getElementById('rawFeed');
+            if (frameCapture) return;
+
             const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            
+            const context = canvas.getContext('2d');
+            const video = document.getElementById('rawFeed');
+
             frameCapture = setInterval(() => {
-                if (!isProcessing) {
-                    clearInterval(frameCapture);
-                    return;
-                }
-                
-                ctx.drawImage(video, 0, 0);
-                const frame = canvas.toDataURL('image/jpeg', 0.7);
+                if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const frame = canvas.toDataURL('image/jpeg');
                 socket.emit('frame', frame);
-            }, 100); // Capture every 100ms
+            }, 100);
         }
 
         async function startDrive() {
@@ -410,8 +565,8 @@
         // Clean up when leaving the page
         window.addEventListener('beforeunload', () => {
             stopProcessing();
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
             }
         });
     </script>
