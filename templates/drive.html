@@ -1,0 +1,233 @@
+    <div class="container">
+        <div id="camera-permission">
+            <h3>Camera Access Required</h3>
+            <p>Please allow camera access to use the lane detection system.</p>
+            <button onclick="requestCamera()">Enable Camera</button>
+        </div>
+
+        <div class="video-container">
+            <div class="video-box">
+                <h3>Raw Feed</h3>
+                <div class="video-content">
+                    <video id="rawFeed" autoplay playsinline></video>
+                </div>
+            </div>
+            <div class="video-box">
+                <h3>Processed Feed</h3>
+                <div class="video-content">
+                    <img id="processedFeed" src="" alt="Processed Feed">
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="startDrive" class="action-button" onclick="startDrive()">Start Drive</button>
+            <button id="stopDrive" class="action-button" onclick="stopDrive()" style="display: none;">Stop Drive</button>
+        </div>
+
+        <div id="tripSummary" class="trip-summary" style="display: none;">
+            <h3>Trip Summary</h3>
+            <div class="summary-content">
+                <div class="summary-item">
+                    <span class="label">Duration:</span>
+                    <span id="tripDuration" class="value"></span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Start Time:</span>
+                    <span id="tripStartTime" class="value"></span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">End Time:</span>
+                    <span id="tripEndTime" class="value"></span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Start Location:</span>
+                    <span id="tripStartLocation" class="value"></span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">End Location:</span>
+                    <span id="tripEndLocation" class="value"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="status" class="disconnected">Disconnected</div>
+
+    <style>
+        .controls {
+            margin: 2rem 0;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .action-button {
+            padding: 1rem 2rem;
+            font-size: 1.2rem;
+            background: linear-gradient(45deg, var(--accent-color), var(--secondary-color));
+            color: var(--primary-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .action-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 136, 0.3);
+        }
+
+        .trip-summary {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-top: 2rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .summary-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .summary-item {
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .summary-item .label {
+            display: block;
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-bottom: 0.5rem;
+        }
+
+        .summary-item .value {
+            display: block;
+            font-size: 1.1rem;
+            color: var(--accent-color);
+        }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        let currentTripId = null;
+        let watchId = null;
+        let currentPosition = null;
+
+        // Initialize geolocation
+        function initGeolocation() {
+            if ("geolocation" in navigator) {
+                watchId = navigator.geolocation.watchPosition(
+                    position => {
+                        currentPosition = {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude,
+                            accuracy: position.coords.accuracy,
+                            timestamp: position.timestamp
+                        };
+                        
+                        if (currentTripId) {
+                            socket.emit('update_location', {
+                                trip_id: currentTripId,
+                                location: currentPosition
+                            });
+                        }
+                    },
+                    error => {
+                        console.error('Error getting location:', error);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 1000,
+                        timeout: 5000
+                    }
+                );
+            }
+        }
+
+        async function startDrive() {
+            try {
+                // Request camera access if not already granted
+                if (!stream) {
+                    await startCamera();
+                }
+                
+                // Start GPS tracking
+                initGeolocation();
+                
+                // Start the trip
+                const response = await socket.emitWithAck('start_trip', {
+                    location: currentPosition || 'Location unavailable'
+                });
+                
+                if (response && response.trip_id) {
+                    currentTripId = response.trip_id;
+                    document.getElementById('startDrive').style.display = 'none';
+                    document.getElementById('stopDrive').style.display = 'inline-block';
+                    document.getElementById('tripSummary').style.display = 'none';
+                    
+                    // Start frame capture if not already started
+                    if (!isProcessing) {
+                        startFrameCapture();
+                    }
+                }
+            } catch (error) {
+                console.error('Error starting drive:', error);
+            }
+        }
+
+        async function stopDrive() {
+            if (currentTripId) {
+                // Stop GPS tracking
+                if (watchId) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                }
+                
+                // End the trip
+                const summary = await socket.emitWithAck('end_trip', {
+                    trip_id: currentTripId,
+                    location: currentPosition || 'Location unavailable'
+                });
+                
+                if (summary && !summary.error) {
+                    document.getElementById('tripDuration').textContent = summary.duration;
+                    document.getElementById('tripStartTime').textContent = summary.start_time;
+                    document.getElementById('tripEndTime').textContent = summary.end_time;
+                    document.getElementById('tripStartLocation').textContent = summary.start_location;
+                    document.getElementById('tripEndLocation').textContent = summary.end_location;
+                    
+                    document.getElementById('tripSummary').style.display = 'block';
+                    document.getElementById('startDrive').style.display = 'inline-block';
+                    document.getElementById('stopDrive').style.display = 'none';
+                }
+                
+                currentTripId = null;
+                
+                // Stop the video feed
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+                isProcessing = false;
+            }
+        }
+
+        // Clean up when leaving the page
+        window.addEventListener('beforeunload', () => {
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html> 
