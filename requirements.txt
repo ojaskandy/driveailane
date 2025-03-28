@@ -1,12 +1,12 @@
 --prefer-binary
-numpy==1.24.3
-opencv-python-headless==4.8.1.78
+numpy==1.26.4
+opencv-python-headless==4.9.0.80
 Pillow==10.0.0
-Flask==2.3.3
+Flask==3.0.2
 Flask-SocketIO==5.3.6
 python-socketio==5.9.0
 python-engineio==4.8.0
-eventlet==0.33.3
+eventlet==0.35.2
 gunicorn==21.2.0
 twilio==8.10.0
 Werkzeug==2.3.7 
