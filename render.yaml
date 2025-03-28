@@ -4,8 +4,8 @@ services:
     env: python
     buildCommand: |
       pip install --upgrade pip
-      pip install --prefer-binary -r requirements.txt
-    startCommand: gunicorn --worker-class eventlet -w 1 --timeout 120 --keep-alive 120 --log-level debug app:app
+      pip install -r requirements.txt --no-cache-dir
+    startCommand: gunicorn --worker-class eventlet -w 1 --timeout 120 --keep-alive 120 --log-level info app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
@@ -20,4 +20,4 @@ services:
       - key: WEB_CONCURRENCY
         value: 1
     healthCheckPath: /
-    autoDeploy: true 
+    autoDeploy: false 

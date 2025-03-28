@@ -36,9 +36,17 @@ app.config['SECRET_KEY'] = os.urandom(24)
 
 # Initialize SocketIO with appropriate async mode
 if is_production:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+    socketio = SocketIO(app, 
+                       cors_allowed_origins="*", 
+                       async_mode='eventlet',
+                       ping_interval=25,
+                       ping_timeout=120)
 else:
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+    socketio = SocketIO(app, 
+                       cors_allowed_origins="*", 
+                       async_mode='threading',
+                       ping_interval=25,
+                       ping_timeout=120)
 
 thread_lock = Lock()
 
