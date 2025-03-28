@@ -637,15 +637,13 @@ def process_frame(frame):
         print(f"Error processing frame: {str(e)}")
         return None
 
+# Initialize pygame without audio
+pygame.init()
+os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Use dummy audio driver
+
+# Get port from environment variable for deployment
+port = int(os.environ.get('PORT', 3000))
+
 if __name__ == '__main__':
-    try:
-        pygame.init()  # Initialize pygame
-        try:
-            pygame.mixer.init()  # Try to initialize audio
-        except pygame.error:
-            print("Warning: Could not initialize pygame audio. Continuing without sound...")
-    except Exception as e:
-        print(f"Warning: Could not initialize pygame. Continuing without sound... Error: {e}")
-    
-    print("Starting DriveAI on http://0.0.0.0:3000")
-    socketio.run(app, host='0.0.0.0', port=3000, debug=True) 
+    print(f"Starting DriveAI on port {port}")
+    socketio.run(app, host='0.0.0.0', port=port, debug=True) 
