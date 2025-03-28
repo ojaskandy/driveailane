@@ -1,5 +1,9 @@
-import eventlet
-eventlet.monkey_patch()
+# Check if we're running in production (Render)
+is_production = os.environ.get('RENDER', False)
+
+if is_production:
+    import eventlet
+    eventlet.monkey_patch()
 
 from flask import Flask, render_template, Response, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -28,9 +32,6 @@ from lane_detector import LaneDetector
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
-
-# Check if we're running in production (Render)
-is_production = os.environ.get('RENDER', False)
 
 # Initialize SocketIO with appropriate async mode
 if is_production:
