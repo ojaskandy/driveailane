@@ -28,7 +28,16 @@ from lane_detector import LaneDetector
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# Check if we're running in production (Render)
+is_production = os.environ.get('RENDER', False)
+
+# Initialize SocketIO with appropriate async mode
+if is_production:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+else:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
 thread_lock = Lock()
 
 # Create application context
@@ -690,6 +699,6 @@ if __name__ == '__main__':
         print(f"Starting DriveAI in production mode on port {port}")
         StandaloneApplication(app, options).run()
     else:
-        # In development, use Flask's development server
+        # In development, use Flask's development server with threading
         print(f"Starting DriveAI in development mode on port {port}")
-        socketio.run(app, host='0.0.0.0', port=port, debug=True) 
+        socketio.run(app, host='0.0.0.0', port=port, debug=True, use_reloader=False) 
