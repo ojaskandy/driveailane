@@ -348,7 +348,16 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-        let socket = io();
+        // Configure Socket.IO connection based on environment
+        const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+        const socketOptions = {
+            transports: ['websocket'],
+            upgrade: false,
+            secure: isProduction,
+            rejectUnauthorized: false
+        };
+        
+        let socket = io(window.location.origin, socketOptions);
         let localStream = null;
         let currentCamera = null;
         let isProcessing = false;

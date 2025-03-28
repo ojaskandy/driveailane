@@ -589,7 +589,7 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
     
     # Check if we're running in production (Render)
-    is_production = os.environ.get('RENDER', False)
+    is_production = os.environ.get('RENDER', 'false').lower() == 'true'
     
     if is_production:
         # In production, use Gunicorn with eventlet
@@ -612,7 +612,10 @@ if __name__ == '__main__':
             'bind': f'0.0.0.0:{port}',
             'worker_class': 'eventlet',
             'workers': 1,
-            'timeout': 120
+            'timeout': 120,
+            'websocket_ping_interval': 25,
+            'websocket_ping_timeout': 120,
+            'access_log_format': '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
         }
         
         print(f"Starting DriveAI in production mode on port {port}")
