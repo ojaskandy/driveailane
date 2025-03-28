@@ -650,9 +650,17 @@ def process_frame(frame):
         print(f"Error processing frame: {str(e)}")
         return None
 
-# Get port from environment variable for deployment
-port = int(os.environ.get('PORT', 3000))
-
 if __name__ == '__main__':
-    print(f"Starting DriveAI on port {port}")
-    socketio.run(app, host='0.0.0.0', port=port, debug=True) 
+    # Get port from environment variable for deployment
+    port = int(os.environ.get('PORT', 3000))
+    
+    # Check if we're running in production (Render)
+    is_production = os.environ.get('RENDER', False)
+    
+    if is_production:
+        # In production, we don't run the server here as it's handled by Gunicorn
+        print(f"Starting DriveAI in production mode on port {port}")
+    else:
+        # In development, use Flask's development server
+        print(f"Starting DriveAI in development mode on port {port}")
+        socketio.run(app, host='0.0.0.0', port=port, debug=True) 
