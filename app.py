@@ -658,8 +658,31 @@ if __name__ == '__main__':
     is_production = os.environ.get('RENDER', False)
     
     if is_production:
-        # In production, we don't run the server here as it's handled by Gunicorn
+        # In production, use Gunicorn with eventlet
+        from gunicorn.app.base import BaseApplication
+        
+        class StandaloneApplication(BaseApplication):
+            def __init__(self, app, options=None):
+                self.options = options or {}
+                self.application = app
+                super().__init__()
+            
+            def load_config(self):
+                for key, value in self.options.items():
+                    self.cfg.set(key, value)
+            
+            def load(self):
+                return self.application
+        
+        options = {
+            'bind': f'0.0.0.0:{port}',
+            'worker_class': 'eventlet',
+            'workers': 1,
+            'timeout': 120
+        }
+        
         print(f"Starting DriveAI in production mode on port {port}")
+        StandaloneApplication(app, options).run()
     else:
         # In development, use Flask's development server
         print(f"Starting DriveAI in development mode on port {port}")
