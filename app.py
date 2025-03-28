@@ -1,3 +1,5 @@
+import os
+
 # Check if we're running in production (Render)
 is_production = os.environ.get('RENDER', False)
 
@@ -12,7 +14,6 @@ import numpy as np
 import base64
 import io
 from PIL import Image
-import os
 import smtplib
 from email.mime.text import MIMEText
 from threading import Lock
