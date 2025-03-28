@@ -474,13 +474,12 @@ def check_lane_departure(left_pos, right_pos, frame_width):
         offset = car_pos - lane_center
         
         # Check if car is too close to either lane
-        if (abs(offset) > LANE_DEPARTURE_THRESHOLD and 
-            AUDIO_AVAILABLE and 
-            (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL):
-            last_beep_time = current_time
-            departure_direction = "left" if offset > 0 else "right"
-            socketio.emit('play_beep', {'direction': departure_direction})
-            return True, f"Departing {departure_direction} lane"
+        if abs(offset) > LANE_DEPARTURE_THRESHOLD:
+            if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
+                last_beep_time = current_time
+                direction = "left" if offset > 0 else "right"
+                socketio.emit('play_beep', {'direction': direction})
+            return True, f"Lane Departure: {direction.upper()}"
     
     # If only one lane is detected, check distance to that lane
     elif left_pos is not None:
@@ -488,14 +487,14 @@ def check_lane_departure(left_pos, right_pos, frame_width):
             if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
                 last_beep_time = current_time
                 socketio.emit('play_beep', {'direction': 'left'})
-            return True, "Too close to left lane"
+            return True, "Lane Departure: LEFT"
     
     elif right_pos is not None:
         if right_pos < (1 - LANE_DEPARTURE_THRESHOLD):
             if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
                 last_beep_time = current_time
                 socketio.emit('play_beep', {'direction': 'right'})
-            return True, "Too close to right lane"
+            return True, "Lane Departure: RIGHT"
     
     return False, None
 
@@ -504,67 +503,19 @@ def process_frame(frame):
         # Get frame dimensions
         height, width = frame.shape[:2]
         
-        # Detect dashboard edge (or use static height)
-        dashboard_y = detect_dashboard_edge(frame, height, width)
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # Create a copy for preprocessing
-        working_frame = frame.copy()
+        # Apply Gaussian blur
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         
-        # Apply histogram equalization to improve contrast
-        gray = cv2.cvtColor(working_frame, cv2.COLOR_BGR2GRAY)
-        equalized = cv2.equalizeHist(gray)
+        # Apply Canny edge detection
+        edges = cv2.Canny(blurred, 50, 150)
         
-        # Convert to HSV and LAB color spaces
-        hsv = cv2.cvtColor(working_frame, cv2.COLOR_BGR2HSV)
-        lab = cv2.cvtColor(working_frame, cv2.COLOR_BGR2LAB)
-        
-        # Define color ranges for white and yellow lanes
-        white_lower = np.array([0, 0, 200])    # Tightened for pure whites
-        white_upper = np.array([180, 30, 255])
-        yellow_lower = np.array([20, 100, 100]) # Narrowed hue range
-        yellow_upper = np.array([30, 255, 255])
-        
-        # Create masks for white and yellow lanes in HSV
-        white_mask_hsv = cv2.inRange(hsv, white_lower, white_upper)
-        yellow_mask_hsv = cv2.inRange(hsv, yellow_lower, yellow_upper)
-        
-        # Create yellow mask in LAB space
-        yellow_mask_lab = cv2.inRange(lab, np.array([50, 110, 110]), np.array([255, 145, 145]))
-        
-        # Combine masks
-        yellow_mask = cv2.bitwise_or(yellow_mask_hsv, yellow_mask_lab)
-        combined_mask = cv2.bitwise_or(white_mask_hsv, yellow_mask)
-        
-        # Apply morphological operations
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
-        combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
-        
-        # Dilate to enhance lane markings
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        combined_mask = cv2.dilate(combined_mask, kernel, iterations=1)
-        
-        # Create and apply dashboard mask
-        dashboard_mask = np.ones_like(combined_mask)
-        dashboard_mask[dashboard_y:, :] = 0
-        combined_mask = cv2.bitwise_and(combined_mask, dashboard_mask)
-        
-        # Apply adaptive thresholding
-        adaptive_thresh = cv2.adaptiveThreshold(
-            equalized, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            11, 2
-        )
-        
-        # Combine with color mask
-        edges = cv2.bitwise_and(adaptive_thresh, combined_mask)
-        
-        # Define ROI vertices
+        # Define region of interest
         roi_vertices = np.array([[
             (0, height),
-            (0, dashboard_y),
-            (width, dashboard_y),
+            (width//2, height//2),
             (width, height)
         ]], dtype=np.int32)
         
@@ -580,83 +531,28 @@ def process_frame(frame):
             theta=np.pi/180,
             threshold=20,
             minLineLength=50,
-            maxLineGap=200
+            maxLineGap=100
         )
         
-        # Process detected lines
+        # Create line image
         line_image = np.zeros_like(frame)
+        
         if lines is not None:
-            left_lines = []
-            right_lines = []
-            
-            # Previous frame's slopes for consistency check
-            prev_left_slope = None
-            prev_right_slope = None
-            
             for line in lines:
                 x1, y1, x2, y2 = line[0]
-                
-                # Skip if line is in dashboard area
-                if y1 > dashboard_y or y2 > dashboard_y:
-                    continue
-                
-                if x2 - x1 == 0:  # Skip vertical lines
-                    continue
-                
-                slope = (y2 - y1) / (x2 - x1)
-                
-                # Filter lines by slope and position
-                if 0.2 < abs(slope) < 2.5:
-                    # Check slope consistency if we have previous slopes
-                    if slope < 0 and x1 < width/2:  # Left lane
-                        if prev_left_slope is None or abs(slope - prev_left_slope) < 0.5:
-                            left_lines.append(line)
-                            prev_left_slope = slope
-                    elif slope > 0 and x1 > width/2:  # Right lane
-                        if prev_right_slope is None or abs(slope - prev_right_slope) < 0.5:
-                            right_lines.append(line)
-                            prev_right_slope = slope
-            
-            # Extrapolate and smooth lines
-            left_line = extrapolate_line(left_lines, height)
-            right_line = extrapolate_line(right_lines, height)
-            
-            # Apply temporal smoothing
-            left_line = smooth_lines(left_line, 'left')
-            right_line = smooth_lines(right_line, 'right')
-            
-            # Draw the smoothed lines
-            if left_line is not None:
-                cv2.line(line_image,
-                        (left_line[0][0], left_line[0][1]),
-                        (left_line[0][2], left_line[0][3]),
-                        (0, 255, 0), 3)
-            if right_line is not None:
-                cv2.line(line_image,
-                        (right_line[0][0], right_line[0][1]),
-                        (right_line[0][2], right_line[0][3]),
-                        (0, 255, 0), 3)
+                cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
         
         # Combine original frame with line image
         result = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
         
-        # Draw dashboard area
-        cv2.rectangle(result, (0, dashboard_y), (width, height), (0, 255, 255), 2)
-        
-        # Add text overlay
-        cv2.putText(result, "Lane Detection Active", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        
         # Check for lane departure
         left_pos, right_pos = calculate_lane_position(lines, width)
-        departure_direction = check_lane_departure(left_pos, right_pos, width)
+        departure_detected, departure_direction = check_lane_departure(left_pos, right_pos, width)
         
-        # Add lane departure warning
-        if departure_direction:
-            warning_text = f"Lane Departure Warning: {departure_direction.upper()}"
-            cv2.putText(result, warning_text, (10, 60),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            socketio.emit('play_beep', {'direction': departure_direction})
+        # Add lane departure warning if detected
+        if departure_detected:
+            cv2.putText(result, departure_direction, (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         
         # Encode the processed frame
         _, buffer = cv2.imencode('.jpg', result)
