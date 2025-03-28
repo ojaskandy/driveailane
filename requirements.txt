@@ -10,4 +10,5 @@ eventlet==0.35.2
 gunicorn==21.2.0
 twilio==8.10.0
 Werkzeug>=3.0.0
-pygame==2.6.1 
+pygame==2.6.1
+scipy==1.11.3 
