@@ -391,7 +391,13 @@ def process_frames_worker(trip_id):
             continue
 
 # Initialize pygame mixer for audio
-pygame.mixer.init()
+try:
+    os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Use dummy audio driver
+    pygame.mixer.init()
+    AUDIO_AVAILABLE = True
+except Exception as e:
+    print(f"Audio initialization failed: {str(e)}")
+    AUDIO_AVAILABLE = False
 
 # Constants for lane departure detection
 LANE_DEPARTURE_THRESHOLD = 0.15  # 15% of frame width
@@ -435,10 +441,15 @@ def calculate_lane_position(lines, frame_width):
 
 def check_lane_departure(left_pos, right_pos, frame_width):
     global last_beep_time
+    current_time = datetime.now()
     
     if left_pos is None and right_pos is None:
-        return None
-        
+        # No lines detected
+        if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
+            last_beep_time = current_time
+            socketio.emit('play_beep', {'direction': 'no_lines'})
+        return True, "No lane lines detected"
+    
     # Calculate car position relative to detected lanes
     if left_pos is not None and right_pos is not None:
         car_pos = 0.5  # Assume car is in center of frame
@@ -446,28 +457,30 @@ def check_lane_departure(left_pos, right_pos, frame_width):
         offset = car_pos - lane_center
         
         # Check if car is too close to either lane
-        current_time = datetime.now()
         if (abs(offset) > LANE_DEPARTURE_THRESHOLD and 
+            AUDIO_AVAILABLE and 
             (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL):
             last_beep_time = current_time
-            return "left" if offset > 0 else "right"
-            
+            departure_direction = "left" if offset > 0 else "right"
+            socketio.emit('play_beep', {'direction': departure_direction})
+            return True, f"Departing {departure_direction} lane"
+    
     # If only one lane is detected, check distance to that lane
     elif left_pos is not None:
         if left_pos > LANE_DEPARTURE_THRESHOLD:
-            current_time = datetime.now()
-            if (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
+            if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
                 last_beep_time = current_time
-                return "left"
-                
+                socketio.emit('play_beep', {'direction': 'left'})
+            return True, "Too close to left lane"
+    
     elif right_pos is not None:
         if right_pos < (1 - LANE_DEPARTURE_THRESHOLD):
-            current_time = datetime.now()
-            if (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
+            if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
                 last_beep_time = current_time
-                return "right"
-                
-    return None
+                socketio.emit('play_beep', {'direction': 'right'})
+            return True, "Too close to right lane"
+    
+    return False, None
 
 def process_frame(frame):
     try:
@@ -636,10 +649,6 @@ def process_frame(frame):
     except Exception as e:
         print(f"Error processing frame: {str(e)}")
         return None
-
-# Initialize pygame without audio
-pygame.init()
-os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Use dummy audio driver
 
 # Get port from environment variable for deployment
 port = int(os.environ.get('PORT', 3000))
