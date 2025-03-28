@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, render_template, Response, jsonify, request
 from flask_socketio import SocketIO, emit
 import cv2
@@ -25,8 +28,11 @@ from lane_detector import LaneDetector
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 thread_lock = Lock()
+
+# Create application context
+app.app_context().push()
 
 # Twilio credentials
 TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
