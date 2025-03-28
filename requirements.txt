@@ -9,4 +9,5 @@ python-engineio==4.8.0
 eventlet==0.35.2
 gunicorn==21.2.0
 twilio==8.10.0
-Werkzeug==2.3.7 
+Werkzeug>=3.0.0
+pygame==2.6.1 
