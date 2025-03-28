@@ -1,7 +1,7 @@
 import os
 
 # Check if we're running in production (Render)
-is_production = os.environ.get('RENDER', False)
+is_production = os.environ.get('RENDER', 'false').lower() == 'true'
 
 if is_production:
     import eventlet
@@ -309,15 +309,11 @@ def handle_frame(data):
     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if frame is not None:
-        # Process frame using lane detection
-        processed_frame = lane_detector.process_frame(frame)
-        
-        # Encode processed frame to base64
-        _, buffer = cv2.imencode('.jpg', processed_frame)
-        processed_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        # Send processed frame back to client
-        socketio.emit('processed_frame', processed_base64)
+        # Process frame using the same processing function for both environments
+        processed_frame = process_frame(frame)
+        if processed_frame:
+            # Send processed frame back to client
+            socketio.emit('processed_frame', processed_frame)
 
 @socketio.on('start_trip')
 def handle_start_trip(data):
@@ -524,7 +520,7 @@ def process_frame(frame):
         cv2.fillPoly(mask, roi_vertices, 255)
         masked_edges = cv2.bitwise_and(edges, mask)
         
-        # Apply Hough transform
+        # Apply Hough transform with optimized parameters
         lines = cv2.HoughLinesP(
             masked_edges,
             rho=1,
@@ -538,9 +534,34 @@ def process_frame(frame):
         line_image = np.zeros_like(frame)
         
         if lines is not None:
+            # Separate left and right lines
+            left_lines = []
+            right_lines = []
+            
             for line in lines:
                 x1, y1, x2, y2 = line[0]
-                cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                if x2 - x1 == 0:  # Skip vertical lines
+                    continue
+                    
+                slope = (y2 - y1) / (x2 - x1)
+                
+                # Filter lines by slope
+                if 0.3 < abs(slope) < 2:  # Reasonable slope range for lane lines
+                    if slope < 0:  # Left lane
+                        left_lines.append(line)
+                    else:  # Right lane
+                        right_lines.append(line)
+            
+            # Draw left and right lines
+            if left_lines:
+                for line in left_lines:
+                    x1, y1, x2, y2 = line[0]
+                    cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            
+            if right_lines:
+                for line in right_lines:
+                    x1, y1, x2, y2 = line[0]
+                    cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
         
         # Combine original frame with line image
         result = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
