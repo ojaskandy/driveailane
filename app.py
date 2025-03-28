@@ -1,7 +1,7 @@
 import os
 
 # Check if we're running in production (Render)
-is_production = os.environ.get('RENDER', 'false').lower() == 'true'
+is_production = os.environ.get('RENDER', False)
 
 if is_production:
     import eventlet
@@ -36,17 +36,9 @@ app.config['SECRET_KEY'] = os.urandom(24)
 
 # Initialize SocketIO with appropriate async mode
 if is_production:
-    socketio = SocketIO(app, 
-                       cors_allowed_origins="*", 
-                       async_mode='eventlet',
-                       ping_interval=25,
-                       ping_timeout=120)
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 else:
-    socketio = SocketIO(app, 
-                       cors_allowed_origins="*", 
-                       async_mode='threading',
-                       ping_interval=25,
-                       ping_timeout=120)
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 thread_lock = Lock()
 
@@ -317,11 +309,15 @@ def handle_frame(data):
     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if frame is not None:
-        # Process frame using the same processing function for both environments
-        processed_frame = process_frame(frame)
-        if processed_frame:
-            # Send processed frame back to client
-            socketio.emit('processed_frame', processed_frame)
+        # Process frame using lane detection
+        processed_frame = lane_detector.process_frame(frame)
+        
+        # Encode processed frame to base64
+        _, buffer = cv2.imencode('.jpg', processed_frame)
+        processed_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        # Send processed frame back to client
+        socketio.emit('processed_frame', processed_base64)
 
 @socketio.on('start_trip')
 def handle_start_trip(data):
@@ -478,12 +474,13 @@ def check_lane_departure(left_pos, right_pos, frame_width):
         offset = car_pos - lane_center
         
         # Check if car is too close to either lane
-        if abs(offset) > LANE_DEPARTURE_THRESHOLD:
-            if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
-                last_beep_time = current_time
-                direction = "left" if offset > 0 else "right"
-                socketio.emit('play_beep', {'direction': direction})
-            return True, f"Lane Departure: {direction.upper()}"
+        if (abs(offset) > LANE_DEPARTURE_THRESHOLD and 
+            AUDIO_AVAILABLE and 
+            (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL):
+            last_beep_time = current_time
+            departure_direction = "left" if offset > 0 else "right"
+            socketio.emit('play_beep', {'direction': departure_direction})
+            return True, f"Departing {departure_direction} lane"
     
     # If only one lane is detected, check distance to that lane
     elif left_pos is not None:
@@ -491,14 +488,14 @@ def check_lane_departure(left_pos, right_pos, frame_width):
             if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
                 last_beep_time = current_time
                 socketio.emit('play_beep', {'direction': 'left'})
-            return True, "Lane Departure: LEFT"
+            return True, "Too close to left lane"
     
     elif right_pos is not None:
         if right_pos < (1 - LANE_DEPARTURE_THRESHOLD):
             if AUDIO_AVAILABLE and (current_time - last_beep_time).total_seconds() >= MIN_BEEP_INTERVAL:
                 last_beep_time = current_time
                 socketio.emit('play_beep', {'direction': 'right'})
-            return True, "Lane Departure: RIGHT"
+            return True, "Too close to right lane"
     
     return False, None
 
@@ -511,15 +508,16 @@ def process_frame(frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
         # Apply Gaussian blur
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
         
-        # Apply Canny edge detection
-        edges = cv2.Canny(blurred, 50, 150)
+        # Edge detection
+        edges = cv2.Canny(blur, 50, 150)
         
         # Define region of interest
         roi_vertices = np.array([[
             (0, height),
-            (width//2, height//2),
+            (width//3, height//2),
+            (2*width//3, height//2),
             (width, height)
         ]], dtype=np.int32)
         
@@ -528,21 +526,19 @@ def process_frame(frame):
         cv2.fillPoly(mask, roi_vertices, 255)
         masked_edges = cv2.bitwise_and(edges, mask)
         
-        # Apply Hough transform with optimized parameters
+        # Hough transform
         lines = cv2.HoughLinesP(
             masked_edges,
             rho=1,
             theta=np.pi/180,
             threshold=20,
-            minLineLength=50,
-            maxLineGap=100
+            minLineLength=20,
+            maxLineGap=300
         )
         
-        # Create line image
+        # Process detected lines
         line_image = np.zeros_like(frame)
-        
         if lines is not None:
-            # Separate left and right lines
             left_lines = []
             right_lines = []
             
@@ -560,28 +556,37 @@ def process_frame(frame):
                     else:  # Right lane
                         right_lines.append(line)
             
-            # Draw left and right lines
-            if left_lines:
-                for line in left_lines:
-                    x1, y1, x2, y2 = line[0]
-                    cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Extrapolate lines
+            left_line = extrapolate_line(left_lines, height)
+            right_line = extrapolate_line(right_lines, height)
             
-            if right_lines:
-                for line in right_lines:
-                    x1, y1, x2, y2 = line[0]
-                    cv2.line(line_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Draw the lines
+            if left_line is not None:
+                cv2.line(line_image,
+                        (left_line[0][0], left_line[0][1]),
+                        (left_line[0][2], left_line[0][3]),
+                        (0, 255, 0), 3)
+            if right_line is not None:
+                cv2.line(line_image,
+                        (right_line[0][0], right_line[0][1]),
+                        (right_line[0][2], right_line[0][3]),
+                        (0, 255, 0), 3)
         
         # Combine original frame with line image
         result = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
         
+        # Add text overlay
+        cv2.putText(result, "Lane Detection Active", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
         # Check for lane departure
         left_pos, right_pos = calculate_lane_position(lines, width)
-        departure_detected, departure_direction = check_lane_departure(left_pos, right_pos, width)
+        departure_detected, warning = check_lane_departure(left_pos, right_pos, width)
         
-        # Add lane departure warning if detected
+        # Add lane departure warning
         if departure_detected:
-            cv2.putText(result, departure_direction, (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv2.putText(result, warning, (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         
         # Encode the processed frame
         _, buffer = cv2.imencode('.jpg', result)
@@ -597,7 +602,7 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
     
     # Check if we're running in production (Render)
-    is_production = os.environ.get('RENDER', 'false').lower() == 'true'
+    is_production = os.environ.get('RENDER', False)
     
     if is_production:
         # In production, use Gunicorn with eventlet
@@ -620,10 +625,7 @@ if __name__ == '__main__':
             'bind': f'0.0.0.0:{port}',
             'worker_class': 'eventlet',
             'workers': 1,
-            'timeout': 120,
-            'websocket_ping_interval': 25,
-            'websocket_ping_timeout': 120,
-            'access_log_format': '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
+            'timeout': 120
         }
         
         print(f"Starting DriveAI in production mode on port {port}")
